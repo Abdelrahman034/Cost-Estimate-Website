@@ -28,6 +28,69 @@ const newRow = (id) => ({
   notes: '',
 });
 
+const TEST_ROWS = [
+  {
+    id: 'test-row-1',
+    size: '24x12',
+    linearFeet: 18,
+    ductType: 'supply',
+    fittings: [],
+    insulated: true,
+    internalInsulation: false,
+    flexDuct: false,
+    vd: true,
+    offtake: false,
+    difficultyFactor: 1.0,
+    wasteFactor: 0.10,
+    notes: 'Rectangular supply trunk test',
+  },
+  {
+    id: 'test-row-2',
+    size: '18x10',
+    linearFeet: 12,
+    ductType: 'return',
+    fittings: [],
+    insulated: false,
+    internalInsulation: true,
+    flexDuct: false,
+    vd: false,
+    offtake: true,
+    difficultyFactor: 1.15,
+    wasteFactor: 0.10,
+    notes: 'Rectangular return with internal insulation',
+  },
+  {
+    id: 'test-row-3',
+    size: '12',
+    linearFeet: 10,
+    ductType: 'exhaust',
+    fittings: [],
+    insulated: false,
+    internalInsulation: false,
+    flexDuct: true,
+    vd: false,
+    offtake: false,
+    difficultyFactor: 1.0,
+    wasteFactor: 0.10,
+    notes: 'Round duct flex connection test',
+  },
+  {
+    id: 'test-row-4',
+    size: '10x8',
+    linearFeet: 8,
+    ductType: 'oa',
+    fittings: [],
+    insulated: true,
+    internalInsulation: false,
+    flexDuct: false,
+    vd: false,
+    offtake: true,
+    difficultyFactor: 1.25,
+    wasteFactor: 0.10,
+    notes: 'Outside air run with wrap and offtake',
+  },
+];
+
 export default function MetalDuctModule() {
   const [rows, setRows] = useState([newRow('row-1'), newRow('row-2'), newRow('row-3')]);
   const [prices, setPrices] = useState(DEFAULT_PRICES);
@@ -43,6 +106,21 @@ export default function MetalDuctModule() {
   });
   const [results, setResults] = useState(null);
 
+  const calculateFromRows = useCallback((sourceRows) => {
+    const validRows = sourceRows.filter((r) => r.size && r.linearFeet);
+    if (validRows.length === 0) {
+      toast.error('Add at least one duct size and linear feet');
+      return null;
+    }
+
+    const result = calculateDuctBatch(validRows, prices);
+    const bid = applyOverheadAndMargin(result.totals.totalCost, overhead.overheadPct, overhead.profitPct);
+    const nextResults = { ...result, bid };
+    setResults(nextResults);
+    toast.success(`Calculated ${validRows.length} duct runs`);
+    return nextResults;
+  }, [prices, overhead.overheadPct, overhead.profitPct]);
+
   const handleRowChange = useCallback((id, field, value) => {
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
   }, []);
@@ -56,19 +134,19 @@ export default function MetalDuctModule() {
   };
 
   const calculate = () => {
-    const validRows = rows.filter((r) => r.size && r.linearFeet);
-    if (validRows.length === 0) {
-      toast.error('Add at least one duct size and linear feet');
-      return;
-    }
     try {
-      const result = calculateDuctBatch(validRows, prices);
-      const bid = applyOverheadAndMargin(result.totals.totalCost, overhead.overheadPct, overhead.profitPct);
-      setResults({ ...result, bid });
-      toast.success(`Calculated ${validRows.length} duct runs`);
+      calculateFromRows(rows);
     } catch (err) {
       toast.error('Calculation error: ' + err.message);
     }
+  };
+
+  const loadTestData = () => {
+    setRows(TEST_ROWS);
+    setResults(null);
+    toast.success('Loaded test duct data');
+    // Auto-calculate immediately so result columns populate
+    setTimeout(() => calculateFromRows(TEST_ROWS), 50);
   };
 
   const clearAll = () => {
@@ -102,6 +180,13 @@ export default function MetalDuctModule() {
         </div>
         <div className="flex items-center gap-3">
           <button
+            onClick={loadTestData}
+            className="btn-secondary flex items-center gap-2"
+          >
+            <Info size={16} />
+            Load Test Data
+          </button>
+          <button
             onClick={() => setShowPriceSettings(!showPriceSettings)}
             className="btn-secondary flex items-center gap-2"
           >
@@ -134,13 +219,13 @@ export default function MetalDuctModule() {
       )}
 
       {/* Info banner */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 mb-4 flex items-start gap-3">
+      {/* <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 mb-4 flex items-start gap-3">
         <Info size={16} className="text-blue-500 mt-0.5 flex-shrink-0" />
         <div className="text-sm text-blue-700">
           <strong>Size format:</strong> Rectangular: <code className="bg-blue-100 px-1 rounded">24x12</code> or <code className="bg-blue-100 px-1 rounded">24X12</code> — Round: <code className="bg-blue-100 px-1 rounded">12</code> (diameter in inches).
           Gauge is selected automatically per SMACNA standards.
         </div>
-      </div>
+      </div> */}
 
       {/* Table */}
       <div className="card p-0 overflow-hidden">
