@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Start-Process \"C:\\\\Users\\\\Abdelrahman Salah\\\\OneDrive\\\\Documents\\\\Claude\\\\Projects\\\\Cost Estimator Website\\\\START.bat\")"
+    ]
+  }
+}
