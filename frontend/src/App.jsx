@@ -4,6 +4,7 @@ import { Toaster } from 'react-hot-toast';
 import Sidebar from './components/Layout/Sidebar';
 import Header from './components/Layout/Header';
 import MetalDuctModule from './modules/MetalDuct/MetalDuctModule';
+import DiffuserModule from './modules/Diffuser/DiffuserModule';
 import SettingsPage from './pages/SettingsPage';
 import { SettingsProvider } from './contexts/SettingsContext';
 import DrawingAnalyzer from './components/ai/DrawingAnalyzer';
@@ -43,6 +44,7 @@ export default function App() {
             <Routes>
               <Route path="/" element={<Dashboard projectInfo={projectInfo} />} />
               <Route path="/duct" element={<MetalDuctModule projectInfo={projectInfo} />} />
+              <Route path="/diffuser" element={<DiffuserModule />} />
               <Route path="/drawings" element={<DrawingAnalyzer projectInfo={projectInfo} />} />
               <Route path="/prices" element={<PriceMonitor />} />
               <Route path="/proposal" element={<ProposalGenerator projectInfo={projectInfo} />} />

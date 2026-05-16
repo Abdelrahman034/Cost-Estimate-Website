@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
   Wind,
+  Gauge,
   FileImage,
   TrendingUp,
   FileText,
@@ -14,6 +15,7 @@ import {
 const nav = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/duct', label: 'Metal Duct', icon: Wind },
+  { to: '/diffuser', label: 'Diffuser Schedule', icon: Gauge },
   { to: '/settings', label: 'Settings', icon: Wrench },
   { to: '/drawings', label: 'Drawing Analyzer', icon: FileImage, ai: true },
   { to: '/prices', label: 'Live Prices', icon: TrendingUp, ai: true },
@@ -64,7 +66,7 @@ export default function Sidebar({ open, onClose }) {
           <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider px-3 mb-3">
             Estimating
           </div>
-          {nav.slice(0, 2).map(({ to, label, icon: Icon }) => (
+          {nav.slice(0, 3).map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}
@@ -85,7 +87,7 @@ export default function Sidebar({ open, onClose }) {
           <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider px-3 mb-3 mt-5">
             AI Features
           </div>
-          {nav.slice(2, 5).map(({ to, label, icon: Icon }) => (
+          {nav.slice(3, 6).map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}
@@ -108,7 +110,7 @@ export default function Sidebar({ open, onClose }) {
           <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider px-3 mb-3 mt-5">
             Reports
           </div>
-          {nav.slice(5).map(({ to, label, icon: Icon }) => (
+          {nav.slice(6).map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}
