@@ -109,10 +109,7 @@ export default function DuctRow({ row, result, index, onChange, onRemove, sizePr
       {/* Sq Ft */}
       <td className="px-3 py-2 text-xs font-mono text-gray-700">
         {hasResult ? (
-          <div>
-            <div className="font-semibold">{result.surfaceAreaWithWaste}</div>
-            <div className="text-gray-400">+10% waste</div>
-          </div>
+          <span className="font-semibold">{result.surfaceAreaWithWaste}</span>
         ) : (
           <span className="text-gray-300">—</span>
         )}

@@ -18,6 +18,8 @@ const defaultPrices = {
   vdCost: 25.0, // $/run (volume damper)
   // Internal insulation uplift
   internalInsulationUplift: 0.4, // 40%
+  // Incidentals (hangers, sealant, hardware, tape) as % of duct material — matches Excel header "20%"
+  incidentalsPct: 0.20,
 };
 
 const defaultOverhead = { overheadPct: 0.15, profitPct: 0.10 };

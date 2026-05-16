@@ -243,6 +243,7 @@ export function calculateDuctLineItem(row, prices = {}) {
     offtakeCost,
     vdCost,
     internalInsulationUplift,
+    incidentalsPct,
   } = prices;
 
   // Resolve values with fallbacks to module constants
@@ -257,7 +258,9 @@ export function calculateDuctLineItem(row, prices = {}) {
   const maxFlexLen = maxFlexDuctLen ?? MAX_FLEX_DUCT_LEN;
   const offtakeCostDefault = (offtakeCost !== undefined) ? offtakeCost : OFFTAKE_COST;
   const vdCostDefault = (vdCost !== undefined) ? vdCost : VD_COST;
-  const internalUplift = (internalInsulationUplift !== undefined) ? internalInsulationUplift : INTERNAL_INSULATION_UPLIFT;
+  const internalUplift    = (internalInsulationUplift !== undefined) ? internalInsulationUplift : INTERNAL_INSULATION_UPLIFT;
+  // Incidentals % — hangers, sealant, hardware. Matches Excel "20%" header column.
+  const incidentalsRate   = (incidentalsPct !== undefined) ? incidentalsPct : 0.20;
 
   // Core calculations
   const maxDim = getMaxDimension(size);
@@ -276,6 +279,11 @@ export function calculateDuctLineItem(row, prices = {}) {
   const ductMaterialCost = shape === 'round'
     ? interpolateRoundDuctRate(getMaxDimension(size)) * Number(linearFeet || 0)
     : roundToNearest(weight * sheetMetalCost, 10);
+
+  // Incidentals: hangers, supports, screws, sealant, tape — % of base duct material
+  // Source: Excel "Incidentals ($)" column = ductMaterialCost × 20% (shown in header)
+  // Rounded to nearest $1 (not $10) so small values like $14 are preserved
+  const incidentalsCost = Math.round(ductMaterialCost * incidentalsRate);
 
   // Fitting cost
   let fittingMaterialCost = 0;
@@ -320,7 +328,7 @@ export function calculateDuctLineItem(row, prices = {}) {
   const totalLaborHours = laborHours + fittingLaborHours;
 
   // Total material and labor
-  const totalMaterialCost = ductMaterialCost + fittingMaterialCost + insulationCost + internalInsulationCost + flexDuctCost + vdCostValue + offtakeCostValue;
+  const totalMaterialCost = ductMaterialCost + incidentalsCost + fittingMaterialCost + insulationCost + internalInsulationCost + flexDuctCost + vdCostValue + offtakeCostValue;
   const totalLaborCost = baseDuctLaborCost + fittingLaborCost + insulationLaborCost + flexDuctLaborCost;
   const totalCost = totalMaterialCost + totalLaborCost;
 
@@ -334,6 +342,7 @@ export function calculateDuctLineItem(row, prices = {}) {
     weight: Math.round(weight * 10) / 10,         // base area × lbs/sqft (matches Excel)
     laborHours: Math.round(totalLaborHours * 10) / 10, // for workforce planning display
     ductMaterialCost: Math.round(ductMaterialCost * 100) / 100,
+    incidentalsCost: Math.round(incidentalsCost * 100) / 100,
     internalInsulationCost: Math.round(internalInsulationCost * 100) / 100,
     flexDuctCost: Math.round(flexDuctCost * 100) / 100,
     vdCost: Math.round(vdCostValue * 100) / 100,
@@ -366,6 +375,7 @@ export function calculateDuctBatch(rows, prices = {}) {
       laborCost: acc.laborCost + r.laborCost,
       insulationCost: acc.insulationCost + r.insulationCost,
       internalInsulationCost: acc.internalInsulationCost + r.internalInsulationCost,
+      incidentalsCost: acc.incidentalsCost + r.incidentalsCost,
       flexDuctCost: acc.flexDuctCost + r.flexDuctCost,
       vdCost: acc.vdCost + r.vdCost,
       offtakeCost: acc.offtakeCost + r.offtakeCost,
@@ -380,6 +390,7 @@ export function calculateDuctBatch(rows, prices = {}) {
       laborCost: 0,
       insulationCost: 0,
       internalInsulationCost: 0,
+      incidentalsCost: 0,
       flexDuctCost: 0,
       vdCost: 0,
       offtakeCost: 0,

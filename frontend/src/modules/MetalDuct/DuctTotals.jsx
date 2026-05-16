@@ -12,7 +12,9 @@ export default function DuctTotals({ totals }) {
             { label: 'Total Surface Area', value: `${totals.surfaceArea.toLocaleString()} sq ft`, color: '' },
             { label: 'Total Weight', value: `${totals.weight.toLocaleString()} lbs`, color: '' },
             { label: 'Total Labor Hours', value: `${totals.laborHours.toLocaleString()} hrs`, color: 'text-blue-600' },
-            { label: 'Material Cost', value: `$${totals.materialCost.toLocaleString()}`, color: 'text-green-600' },
+            { label: 'Sheet Metal Material', value: `$${(totals.materialCost - (totals.incidentalsCost||0)).toLocaleString()}`, color: 'text-green-600' },
+            { label: 'Incidentals (hangers, hardware)', value: `$${(totals.incidentalsCost||0).toLocaleString()}`, color: 'text-green-500' },
+            { label: 'Total Material Cost', value: `$${totals.materialCost.toLocaleString()}`, color: 'text-green-700' },
             { label: 'Labor Cost', value: `$${totals.laborCost.toLocaleString()}`, color: 'text-blue-600' },
           ].map(({ label, value, color }) => (
             <div key={label} className="flex justify-between items-center py-1.5 border-b border-gray-100 last:border-0">

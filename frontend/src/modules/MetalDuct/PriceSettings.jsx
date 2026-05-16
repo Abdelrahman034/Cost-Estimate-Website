@@ -179,6 +179,18 @@ export default function PriceSettings({ prices, overhead, onPricesChange, onOver
           />
         </div>
 
+        <div>
+          <label className="label">Incidentals (%)</label>
+          <input
+            type="number"
+            step="1"
+            className="input"
+            value={Math.round((draft.incidentalsPct ?? 0.20) * 100)}
+            onChange={(e) => setDraft({ ...draft, incidentalsPct: parseInt(e.target.value) / 100 })}
+          />
+          <p className="text-xs text-gray-400 mt-1">Hangers, sealant, hardware</p>
+        </div>
+
         <div style={{display:'none'}}>
           {/* Overhead % moved to Global tab in Settings */}
           <label className="label">Overhead %</label>
