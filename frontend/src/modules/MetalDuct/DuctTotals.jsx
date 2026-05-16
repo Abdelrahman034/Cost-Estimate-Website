@@ -29,8 +29,7 @@ export default function DuctTotals({ totals }) {
             </div>
             <div className="space-y-2">
               {[
-                { label: 'External Insulation', value: totals.insulationCost || 0, color: 'text-blue-600' },
-                { label: 'Internal Insulation', value: totals.internalInsulationCost || 0, color: 'text-purple-600' },
+                { label: 'Insulation', value: totals.insulationCost || 0, color: 'text-blue-600' },
                 { label: 'Flex Duct', value: totals.flexDuctCost || 0, color: 'text-orange-600' },
                 { label: 'VD', value: totals.vdCost || 0, color: 'text-green-600' },
                 { label: 'Offtake', value: totals.offtakeCost || 0, color: 'text-red-600' },

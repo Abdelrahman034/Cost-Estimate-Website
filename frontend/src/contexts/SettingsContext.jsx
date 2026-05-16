@@ -22,12 +22,9 @@ const defaultPrices = {
   incidentalsPct: 0.20,
   // Round duct incidentals rate — Excel V2 = 25% (different from square duct)
   roundDuctIncidentalsPct: 0.25,
-  // Measurement unit & scale factor — mirrors Excel E2 "Scale - Ft/Unit"
-  // The raw value the user types is multiplied by measureScaleFactor to get actual feet.
-  // Examples: 'ft' → 1.0 | 'in' → 0.0833 | 'mm' → 0.003281 | 'cm' → 0.03281
-  // Users can set a custom factor (e.g. 0.003 for blueprint mm drawings).
+  // Measurement unit — standard world units, conversion factor is fixed (not user-editable)
+  // 'ft' | 'in' | 'm' | 'cm' | 'mm'
   measureUnit: 'ft',
-  measureScaleFactor: 1.0,
 };
 
 const defaultOverhead = { overheadPct: 0.15, profitPct: 0.10 };

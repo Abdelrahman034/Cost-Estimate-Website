@@ -3,29 +3,23 @@ import { X, RefreshCw } from 'lucide-react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 
-// Preset scale factors for common units → feet
-const UNIT_PRESETS = [
-  { label: 'Feet (ft)',         value: 'ft',     factor: 1.0       },
-  { label: 'Inches (in)',       value: 'in',     factor: 0.08333   },
-  { label: 'Millimetres (mm)', value: 'mm',     factor: 0.003281  },
-  { label: 'Centimetres (cm)', value: 'cm',     factor: 0.032808  },
-  { label: 'Custom',            value: 'custom', factor: null       },
+// Standard unit conversions to feet (no custom factor — these are universally fixed)
+const UNIT_OPTIONS = [
+  { label: 'Feet (ft)',        value: 'ft', factor: 1.0,                   example: '1 ft = 1 ft'          },
+  { label: 'Inches (in)',      value: 'in', factor: 1 / 12,                example: '12 in = 1 ft'         },
+  { label: 'Metres (m)',       value: 'm',  factor: 1 / 0.3048,            example: '1 m = 3.281 ft'       },
+  { label: 'Centimetres (cm)', value: 'cm', factor: 1 / 30.48,             example: '100 cm = 3.281 ft'    },
+  { label: 'Millimetres (mm)', value: 'mm', factor: 1 / 304.8,             example: '1000 mm = 3.281 ft'   },
 ];
+
+export function getUnitFactor(unit) {
+  return UNIT_OPTIONS.find((u) => u.value === unit)?.factor ?? 1.0;
+}
 
 export default function PriceSettings({ prices, overhead, onPricesChange, onOverheadChange, onClose }) {
   const [loading, setLoading] = useState(false);
   const [draft, setDraft] = useState(prices);
   const [draftOverhead, setDraftOverhead] = useState(overhead);
-
-  // When the user picks a preset unit, auto-fill the scale factor (unless Custom)
-  const handleUnitChange = (unitValue) => {
-    const preset = UNIT_PRESETS.find((p) => p.value === unitValue);
-    setDraft((prev) => ({
-      ...prev,
-      measureUnit: unitValue,
-      measureScaleFactor: preset?.factor ?? prev.measureScaleFactor,
-    }));
-  };
 
   const fetchLivePrices = async () => {
     setLoading(true);
@@ -68,58 +62,31 @@ export default function PriceSettings({ prices, overhead, onPricesChange, onOver
         </button>
       </div>
 
-      {/* ── Measurement Unit & Scale Factor ── */}
+      {/* ── Measurement Unit ── */}
       <div className="mb-5 p-3 rounded-xl bg-white border border-blue-200">
         <p className="text-xs font-semibold uppercase tracking-wider text-blue-600 mb-3">
           Linear Measurement Unit
         </p>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 items-end">
-          <div>
-            <label className="label">Input Unit</label>
+          <div className="md:col-span-2">
+            <label className="label">Unit of Measurement</label>
             <select
               className="input"
               value={draft.measureUnit ?? 'ft'}
-              onChange={(e) => handleUnitChange(e.target.value)}
+              onChange={(e) => setDraft((prev) => ({ ...prev, measureUnit: e.target.value }))}
             >
-              {UNIT_PRESETS.map((p) => (
-                <option key={p.value} value={p.value}>{p.label}</option>
+              {UNIT_OPTIONS.map((u) => (
+                <option key={u.value} value={u.value}>{u.label}</option>
               ))}
             </select>
             <p className="text-xs text-gray-400 mt-1">Unit you type into the Linear column</p>
           </div>
-          <div>
-            <label className="label">Scale Factor (→ ft)</label>
-            <input
-              type="number"
-              step="0.000001"
-              className="input"
-              value={draft.measureScaleFactor ?? 1.0}
-              onChange={(e) =>
-                setDraft((prev) => ({
-                  ...prev,
-                  measureUnit: 'custom',
-                  measureScaleFactor: parseFloat(e.target.value) || 1.0,
-                }))
-              }
-            />
-            <p className="text-xs text-gray-400 mt-1">Multiply input by this to get feet</p>
-          </div>
           <div className="md:col-span-2 flex items-center">
             <div className="text-sm text-gray-600 bg-gray-50 rounded-lg px-4 py-2.5 border border-gray-200 w-full">
-              <span className="font-semibold text-gray-800">Preview: </span>
-              <span>
-                1 {draft.measureUnit === 'custom' ? 'unit' : draft.measureUnit ?? 'ft'}
-                {' × '}
-                <span className="font-mono text-blue-700">{(draft.measureScaleFactor ?? 1).toFixed(6)}</span>
-                {' = '}
-                <span className="font-semibold text-green-700">
-                  {(draft.measureScaleFactor ?? 1).toFixed(4)} ft
-                </span>
-                {' '}
-                <span className="text-gray-400">
-                  ({((draft.measureScaleFactor ?? 1) * 12).toFixed(2)} in)
-                </span>
-              </span>
+              {(() => {
+                const u = UNIT_OPTIONS.find((o) => o.value === (draft.measureUnit ?? 'ft')) ?? UNIT_OPTIONS[0];
+                return <span className="text-gray-500">{u.example}</span>;
+              })()}
             </div>
           </div>
         </div>
@@ -232,17 +199,6 @@ export default function PriceSettings({ prices, overhead, onPricesChange, onOver
             className="input"
             value={draft.maxFlexDuctLen}
             onChange={(e) => setDraft({ ...draft, maxFlexDuctLen: parseFloat(e.target.value) })}
-          />
-        </div>
-
-        <div>
-          <label className="label">Int. Ins. Uplift (%)</label>
-          <input
-            type="number"
-            step="1"
-            className="input"
-            value={Math.round((draft.internalInsulationUplift || 0) * 100)}
-            onChange={(e) => setDraft({ ...draft, internalInsulationUplift: parseInt(e.target.value) / 100 })}
           />
         </div>
 

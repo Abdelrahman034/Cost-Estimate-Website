@@ -36,6 +36,38 @@ export const GAUGE_WEIGHT = {
   18: 2.156,
 };
 
+// Flex duct pricing table — extracted from Excel Metal Duct sheet (AL18:AN30).
+// Formula: AN = AM / 25  ($/25ft roll → $/ft)
+// Cost per connection = AC13 (5 ft) × $/ft × 1.25 markup
+// Source: S4 = IF(I4="x", $AC$13 × INDEX($AN$19:$AN$30, MATCH($E4,$AL$19:$AL$30,0)) × 1.25, 0)
+export const FLEX_DUCT_PRICE_TABLE = [
+  { size:  4, per25ft:  48 },
+  { size:  5, per25ft:  52 },
+  { size:  6, per25ft:  56 },
+  { size:  7, per25ft:  61 },
+  { size:  8, per25ft:  66 },
+  { size:  9, per25ft:  73 },
+  { size: 10, per25ft:  80 },
+  { size: 12, per25ft:  98 },
+  { size: 14, per25ft: 116 },
+  { size: 16, per25ft: 138 },
+  { size: 18, per25ft: 165 },
+  { size: 20, per25ft: 216 },
+];
+
+export function lookupFlexDuctRate(diameter) {
+  const d = Number(diameter);
+  // Exact match first
+  const exact = FLEX_DUCT_PRICE_TABLE.find((e) => e.size === d);
+  if (exact) return exact.per25ft / 25;
+  // Nearest size (round up — conservative estimate)
+  const sorted = FLEX_DUCT_PRICE_TABLE.slice().sort((a, b) => a.size - b.size);
+  for (const entry of sorted) {
+    if (entry.size >= d) return entry.per25ft / 25;
+  }
+  return sorted[sorted.length - 1].per25ft / 25;
+}
+
 // Round duct pricing table — extracted directly from Excel Metal Duct sheet (AP column, data_only).
 // Formula: AP = AO × (1 + AP3_buffer=0.5), where AO = AM/3 + AN/5 (3-ft and 5-ft raw costs).
 // Excel uses exact MATCH on diameter; we interpolate between known sizes for flexibility.
@@ -259,13 +291,9 @@ export function calculateDuctLineItem(row, prices = {}) {
     roundDuctIncidentalsPct,                             // V2   = 0.25 — round duct
   } = prices;
 
-  // ── Scale factor (mirrors Excel E2 "Scale - Ft/Unit") ───────────────────
-  // User may type measurements in mm, inches, or any drawing unit.
-  // measureScaleFactor converts that raw value to actual feet.
-  // Default 1.0 = user is already entering feet (backward-compatible).
-  const measureScaleFactor = (prices.measureScaleFactor != null && prices.measureScaleFactor > 0)
-    ? prices.measureScaleFactor
-    : 1.0;
+  // ── Unit → feet conversion (standard fixed factors, not user-editable) ──
+  const UNIT_TO_FT = { ft: 1.0, in: 1 / 12, m: 1 / 0.3048, cm: 1 / 30.48, mm: 1 / 304.8 };
+  const measureScaleFactor = UNIT_TO_FT[prices.measureUnit] ?? 1.0;
 
   const sheetMetalCost   = sheetMetalCostPerLb    ?? SHEET_METAL_COST_PER_LB;   // AC6
   const weightLbsPerSqFt = sheetMetalLbsPerFt2    ?? 1.24967;                   // AC5
@@ -315,14 +343,16 @@ export function calculateDuctLineItem(row, prices = {}) {
   const internalInsulationCost = (internalInsulation && ductMaterialCost > 0)
     ? ductMaterialCost * internalUplift : 0;
 
-  // S4: flex duct material — costed on the flex portion length (min of lf and maxFlexLen)
-  // Labor for flex is a fixed $/run charge (AC10 short / AC11 long) based on total run length
+  // S4: flex duct material — fixed per-connection cost, NOT based on actual run length.
+  // Formula: AC13 × INDEX(flex_table $/ft for diameter) × 1.25
+  // = 5 ft standard connection × diameter-based rate × 25% markup
+  // Source: =IF(I4="x", $AC$13*INDEX($AN$19:$AN$30,MATCH($E4,$AL$19:$AL$30,0),1)*1.25, 0)
   let flexDuctCost      = 0;
   let flexDuctLaborCost = 0;
   if (flexDuct && lf > 0) {
-    const flexLf      = Math.min(lf, maxFlexLen);   // flex material up to AC13 ft
-    flexDuctCost      = flexLf * 2.0;               // $2/ft flex tubing material
-    flexDuctLaborCost = lf > maxFlexLen ? flexLong : flexShort;  // AC10/AC11
+    const flexRatePerFt = lookupFlexDuctRate(maxDim);         // $/ft from Excel AN table
+    flexDuctCost        = maxFlexLen * flexRatePerFt * 1.25;  // AC13 × rate × 1.25
+    flexDuctLaborCost   = lf > maxFlexLen ? flexLong : flexShort;  // AC10/AC11
   }
 
   // T4: VD material = 25 if VD checked AND offtake NOT checked (Excel: IF(H="x",IF(G="x",0,25),0))

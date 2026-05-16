@@ -97,12 +97,11 @@ export default function MetalDuctModule() {
   const { prices } = useContext(SettingsContext);
   const navigate = useNavigate();
 
-  // Derive the column label for the linear measurement column
-  const unitLabel = prices.measureUnit
-    ? prices.measureUnit === 'custom' ? 'unit' : prices.measureUnit
-    : 'ft';
-  const scaleFactor = prices.measureScaleFactor ?? 1.0;
-  const showScaleHint = scaleFactor !== 1.0;
+  // Derive the column label and whether to show the "= X.XX ft" hint
+  const unitLabel = prices.measureUnit ?? 'ft';
+  const UNIT_TO_FT = { ft: 1.0, in: 1 / 12, m: 1 / 0.3048, cm: 1 / 30.48, mm: 1 / 304.8 };
+  const scaleFactor = UNIT_TO_FT[unitLabel] ?? 1.0;
+  const showScaleHint = unitLabel !== 'ft';
   const [results, setResults] = useState(null);
 
   const calculateFromRows = useCallback((sourceRows) => {
@@ -121,7 +120,16 @@ export default function MetalDuctModule() {
   }, [prices]);
 
   const handleRowChange = useCallback((id, field, value) => {
-    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
+    setRows((prev) => prev.map((r) => {
+      if (r.id !== id) return r;
+      const updated = { ...r, [field]: value };
+      // If the size changes to rectangular, clear the flex flag (flex is round-only)
+      if (field === 'size') {
+        const isRect = value.includes('x') || value.includes('X') || value.includes('*');
+        if (isRect) updated.flexDuct = false;
+      }
+      return updated;
+    }));
   }, []);
 
   const addRow = () => {
@@ -229,8 +237,7 @@ export default function MetalDuctModule() {
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 w-28">Material $</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 w-24">Labor $</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 w-28">Total $</th>
-                <th className="text-center px-4 py-3 font-semibold text-gray-600 w-20" title="External duct wrap price">Ext. Ins $</th>
-                <th className="text-center px-4 py-3 font-semibold text-gray-600 w-20" title="Internal insulation price">Int. Ins $</th>
+                <th className="text-center px-4 py-3 font-semibold text-gray-600 w-20" title="Duct wrap insulation price">Ins $</th>
                 <th className="text-center px-4 py-3 font-semibold text-gray-600 w-20" title="Flex duct price">Flex $</th>
                 <th className="text-center px-4 py-3 font-semibold text-gray-600 w-20" title="Volume damper price">VD $</th>
                 <th className="text-center px-4 py-3 font-semibold text-gray-600 w-20" title="Offtake price">OT $</th>

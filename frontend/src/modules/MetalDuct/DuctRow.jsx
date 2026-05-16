@@ -22,17 +22,20 @@ export default function DuctRow({ row, result, index, onChange, onRemove, sizePr
   const bg = index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50';
   const hasResult = !!result;
 
-  const accessoryCell = (label, title, checked, value, field, toneClass, hoverClass) => (
+  const accessoryCell = (label, title, checked, value, field, toneClass, hoverClass, disabled = false) => (
     <td className="px-2 py-2 text-center">
       <button
         type="button"
-        title={title}
-        onClick={() => onChange(row.id, field, !checked)}
+        title={disabled ? 'Not available for rectangular duct' : title}
+        disabled={disabled}
+        onClick={() => !disabled && onChange(row.id, field, !checked)}
         className={`group w-full min-w-[96px] rounded-xl border px-2.5 py-2 text-left transition-all duration-150 shadow-sm ${
-          checked
-            ? `${toneClass} border-current ring-1 ring-inset ring-current/20`
-            : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
-        } ${hoverClass}`}
+          disabled
+            ? 'bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed'
+            : checked
+              ? `${toneClass} border-current ring-1 ring-inset ring-current/20`
+              : `bg-white text-gray-500 border-gray-200 ${hoverClass}`
+        }`}
       >
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
@@ -40,11 +43,11 @@ export default function DuctRow({ row, result, index, onChange, onRemove, sizePr
               {label}
             </div>
             <div className="mt-1 text-xs font-bold leading-none">
-              {hasResult ? `$${Number(value || 0).toLocaleString()}` : '—'}
+              {disabled ? 'n/a' : hasResult ? `$${Number(value || 0).toLocaleString()}` : '—'}
             </div>
           </div>
-          <span className={`mt-0.5 inline-flex items-center justify-center ${checked ? 'text-current' : 'text-gray-300'}`}>
-            {checked ? <CheckCircle2 size={16} /> : <Circle size={16} />}
+          <span className={`mt-0.5 inline-flex items-center justify-center ${disabled ? 'text-gray-200' : checked ? 'text-current' : 'text-gray-300'}`}>
+            {!disabled && checked ? <CheckCircle2 size={16} /> : <Circle size={16} />}
           </span>
         </div>
       </button>
@@ -84,10 +87,10 @@ export default function DuctRow({ row, result, index, onChange, onRemove, sizePr
           value={row.linearFeet}
           onChange={(e) => onChange(row.id, 'linearFeet', e.target.value)}
         />
-        {/* Show computed feet when a scale factor is active */}
+        {/* Show computed feet when a non-ft unit is active */}
         {showScaleHint && rawLf > 0 && (
           <div className="text-xs text-blue-500 mt-0.5 font-mono">
-            = {actualLf.toFixed(2)} ft
+            = {actualLf.toFixed(3)} ft
           </div>
         )}
         {previewArea && !hasResult && (
@@ -168,9 +171,8 @@ export default function DuctRow({ row, result, index, onChange, onRemove, sizePr
         )}
       </td>
 
-      {accessoryCell('Ext. Ins', 'External duct wrap', row.insulated, result?.insulationCost, 'insulated', 'bg-blue-50 text-blue-700 border-blue-200', 'hover:bg-blue-100')}
-      {accessoryCell('Int. Ins', 'Internal insulation (fiberglass lined)', row.internalInsulation || false, result?.internalInsulationCost, 'internalInsulation', 'bg-purple-50 text-purple-700 border-purple-200', 'hover:bg-purple-100')}
-      {accessoryCell('Flex', 'Flex duct connection', row.flexDuct || false, result?.flexDuctCost, 'flexDuct', 'bg-orange-50 text-orange-700 border-orange-200', 'hover:bg-orange-100')}
+      {accessoryCell('Ins', 'External duct wrap insulation', row.insulated, result?.insulationCost, 'insulated', 'bg-blue-50 text-blue-700 border-blue-200', 'hover:bg-blue-100')}
+      {accessoryCell('Flex', 'Flex duct connection (round duct only)', row.flexDuct || false, result?.flexDuctCost, 'flexDuct', 'bg-orange-50 text-orange-700 border-orange-200', 'hover:bg-orange-100', shape === 'rectangular')}
       {accessoryCell('VD', 'Volume damper', row.vd || false, result?.vdCost, 'vd', 'bg-green-50 text-green-700 border-green-200', 'hover:bg-green-100')}
       {accessoryCell('OT', 'Offtake connection', row.offtake || false, result?.offtakeCost, 'offtake', 'bg-red-50 text-red-700 border-red-200', 'hover:bg-red-100')}
 
