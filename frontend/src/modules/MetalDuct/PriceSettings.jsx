@@ -51,16 +51,6 @@ export default function PriceSettings({ prices, overhead, onPricesChange, onOver
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
         <div>
-          <label className="label">Sheet Metal (kg/ft²)</label>
-          <input
-            type="number"
-            step="0.0001"
-            className="input"
-            value={draft.sheetMetalKgPerFt2}
-            onChange={(e) => setDraft({ ...draft, sheetMetalKgPerFt2: parseFloat(e.target.value) })}
-          />
-        </div>
-        <div>
           <label className="label">Sheet Metal (lbs/ft²)</label>
           <input
             type="number"
@@ -69,6 +59,7 @@ export default function PriceSettings({ prices, overhead, onPricesChange, onOver
             value={draft.sheetMetalLbsPerFt2}
             onChange={(e) => setDraft({ ...draft, sheetMetalLbsPerFt2: parseFloat(e.target.value) })}
           />
+          <p className="text-xs text-gray-400 mt-1">AC5 — weight per unit area</p>
         </div>
         <div>
           <label className="label">Sheet Metal ($/lb)</label>
@@ -180,7 +171,7 @@ export default function PriceSettings({ prices, overhead, onPricesChange, onOver
         </div>
 
         <div>
-          <label className="label">Incidentals (%)</label>
+          <label className="label">Incidentals - Rect (%)</label>
           <input
             type="number"
             step="1"
@@ -188,7 +179,19 @@ export default function PriceSettings({ prices, overhead, onPricesChange, onOver
             value={Math.round((draft.incidentalsPct ?? 0.20) * 100)}
             onChange={(e) => setDraft({ ...draft, incidentalsPct: parseInt(e.target.value) / 100 })}
           />
-          <p className="text-xs text-gray-400 mt-1">Hangers, sealant, hardware</p>
+          <p className="text-xs text-gray-400 mt-1">Hangers, sealant, hardware (square duct)</p>
+        </div>
+
+        <div>
+          <label className="label">Incidentals - Round (%)</label>
+          <input
+            type="number"
+            step="1"
+            className="input"
+            value={Math.round((draft.roundDuctIncidentalsPct ?? 0.25) * 100)}
+            onChange={(e) => setDraft({ ...draft, roundDuctIncidentalsPct: parseInt(e.target.value) / 100 })}
+          />
+          <p className="text-xs text-gray-400 mt-1">Incidentals rate for round duct</p>
         </div>
 
         <div style={{display:'none'}}>

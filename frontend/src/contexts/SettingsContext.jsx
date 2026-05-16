@@ -20,6 +20,8 @@ const defaultPrices = {
   internalInsulationUplift: 0.4, // 40%
   // Incidentals (hangers, sealant, hardware, tape) as % of duct material — matches Excel header "20%"
   incidentalsPct: 0.20,
+  // Round duct incidentals rate — Excel V2 = 25% (different from square duct)
+  roundDuctIncidentalsPct: 0.25,
 };
 
 const defaultOverhead = { overheadPct: 0.15, profitPct: 0.10 };
