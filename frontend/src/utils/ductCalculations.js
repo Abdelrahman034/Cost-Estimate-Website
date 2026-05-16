@@ -212,7 +212,7 @@ export const FITTING_MULTIPLIERS = {
 /**
  * Calculate all costs for a single duct run
  * @param {Object} row - { size, linearFeet, ductType, fittings, insulated, internalInsulation, flexDuct, vd, offtake, difficultyFactor, wasteFactor }
- * @param {Object} prices - { sheetMetalCostPerLb, laborRate, insulationPerSqFt }
+ * @param {Object} prices - { sheetMetalCostPerLb, laborRate, insulationPerSqFt, ... }
  * @returns {Object} Full cost breakdown
  */
 export function calculateDuctLineItem(row, prices = {}) {
@@ -232,23 +232,50 @@ export function calculateDuctLineItem(row, prices = {}) {
 
   const {
     laborRate = 68.00,
-    insulationPerSqFt = 0.85,
+    insulationPerSqFt = DUCT_WRAP_MATERIAL_COST,
+    sheetMetalCostPerLb,
+    sheetMetalLbsPerFt2,
+    sheetMetalLaborPerFt,
+    ductWrapLaborPerFt,
+    flexDuctLaborShort,
+    flexDuctLaborLong,
+    maxFlexDuctLen,
+    offtakeCost,
+    vdCost,
+    internalInsulationUplift,
   } = prices;
-  const sheetMetalCostPerLb = prices.sheetMetalCostPerLb ?? prices.sheetMetalPerSqFt ?? SHEET_METAL_COST_PER_LB;
+
+  // Resolve values with fallbacks to module constants
+  const sheetMetalCost = sheetMetalCostPerLb ?? SHEET_METAL_COST_PER_LB;
+  // Weight per sqft from settings (matches Excel's sheetMetalLbsPerFt2 field)
+  const weightLbsPerSqFt = sheetMetalLbsPerFt2 ?? 1.24967;
+  // Labor per linear foot from settings (matches Excel's SHEET_METAL_LABOR_RATE)
+  const laborRatePerFt = sheetMetalLaborPerFt ?? SHEET_METAL_LABOR_RATE;
+  const ductWrapLabor = ductWrapLaborPerFt ?? DUCT_WRAP_LABOR_COST;
+  const flexShort = flexDuctLaborShort ?? FLEX_DUCT_LABOR_SHORT;
+  const flexLong = flexDuctLaborLong ?? FLEX_DUCT_LABOR_LONG;
+  const maxFlexLen = maxFlexDuctLen ?? MAX_FLEX_DUCT_LEN;
+  const offtakeCostDefault = (offtakeCost !== undefined) ? offtakeCost : OFFTAKE_COST;
+  const vdCostDefault = (vdCost !== undefined) ? vdCost : VD_COST;
+  const internalUplift = (internalInsulationUplift !== undefined) ? internalInsulationUplift : INTERNAL_INSULATION_UPLIFT;
 
   // Core calculations
   const maxDim = getMaxDimension(size);
   const gauge = selectGauge(maxDim);
   const shape = detectShape(size);
-  const surfaceArea = calculateSurfaceArea(size, linearFeet);
-  const surfaceAreaWithWaste = applyWasteFactor(surfaceArea, wasteFactor);
-  const weight = calculateWeight(surfaceAreaWithWaste, gauge);
+  const surfaceArea = calculateSurfaceArea(size, linearFeet);          // base area (no waste)
+  const surfaceAreaWithWaste = applyWasteFactor(surfaceArea, wasteFactor); // +waste for display & insulation
+  // Weight uses BASE area × lbs/sqft from settings — matches Excel (waste not applied to weight)
+  const weight = surfaceArea * weightLbsPerSqFt;
+  // Labor hours computed from waste-included area for workforce planning (informational)
   const laborHours = calculateLaborHours(surfaceAreaWithWaste, gauge, difficultyFactor);
 
-  // Material cost (square weight-based, round size-based)
+  // Material cost:
+  //   Round duct  → per-LF price table (no change)
+  //   Rect duct   → base_area × lbs/sqft × $/lb, rounded to nearest $10 (matches Excel)
   const ductMaterialCost = shape === 'round'
     ? interpolateRoundDuctRate(getMaxDimension(size)) * Number(linearFeet || 0)
-    : roundToNearest(weight * sheetMetalCostPerLb, 10);
+    : roundToNearest(weight * sheetMetalCost, 10);
 
   // Fitting cost
   let fittingMaterialCost = 0;
@@ -256,18 +283,18 @@ export function calculateDuctLineItem(row, prices = {}) {
   for (const fitting of fittings) {
     const multiplier = FITTING_MULTIPLIERS[fitting.type] || 1.5;
     const fittingArea = calculateSurfaceArea(size, 1) * multiplier;
-    fittingMaterialCost += fittingArea * sheetMetalCostPerLb * (fitting.qty || 1);
+    fittingMaterialCost += fittingArea * sheetMetalCost * (fitting.qty || 1);
     fittingLaborHours += fittingArea * (LABOR_FACTOR_BY_GAUGE[gauge] || 0.05) * (fitting.qty || 1);
   }
 
   // External insulation (duct wrap)
   let insulationCost = insulated ? surfaceAreaWithWaste * insulationPerSqFt : 0;
-  let insulationLaborCost = insulated ? surfaceAreaWithWaste * DUCT_WRAP_LABOR_COST : 0;
+  let insulationLaborCost = insulated ? surfaceAreaWithWaste * ductWrapLabor : 0;
 
   // Internal insulation uplift (40% increase on base duct material)
   let internalInsulationCost = 0;
   if (internalInsulation && ductMaterialCost > 0) {
-    internalInsulationCost = ductMaterialCost * INTERNAL_INSULATION_UPLIFT;
+    internalInsulationCost = ductMaterialCost * internalUplift;
   }
 
   // Flex duct cost and labor
@@ -275,23 +302,26 @@ export function calculateDuctLineItem(row, prices = {}) {
   let flexDuctLaborCost = 0;
   if (flexDuct && Number(linearFeet) > 0) {
     flexDuctCost = Number(linearFeet) * 2.0; // $/ft from workbook flex table
-    const isLongRun = Number(linearFeet) > MAX_FLEX_DUCT_LEN;
-    flexDuctLaborCost = isLongRun ? FLEX_DUCT_LABOR_LONG : FLEX_DUCT_LABOR_SHORT;
+    const isLongRun = Number(linearFeet) > maxFlexLen;
+    flexDuctLaborCost = isLongRun ? flexLong : flexShort;
   }
 
   // VD (Volume Damper) cost
-  const vdCost = vd ? VD_COST : 0;
+  const vdCostValue = vd ? vdCostDefault : 0;
 
   // Offtake cost
-  const offtakeCost = offtake ? OFFTAKE_COST : 0;
+  const offtakeCostValue = offtake ? offtakeCostDefault : 0;
 
-  // Base labor cost (from duct production hours)
+  // Base duct labor cost: per linear foot rate (matches Excel's SHEET_METAL_LABOR_RATE approach)
+  // Rounded to nearest $10 to match workbook rounding pattern
+  const baseDuctLaborCost = roundToNearest(Number(linearFeet || 0) * laborRatePerFt, 10);
+  // Fitting labor still uses hourly rate (fittings are extras, not covered by per-LF rate)
+  const fittingLaborCost = fittingLaborHours * laborRate;
   const totalLaborHours = laborHours + fittingLaborHours;
-  const laborCost = totalLaborHours * laborRate;
 
   // Total material and labor
-  const totalMaterialCost = ductMaterialCost + fittingMaterialCost + insulationCost + internalInsulationCost + flexDuctCost + vdCost + offtakeCost;
-  const totalLaborCost = laborCost + insulationLaborCost + flexDuctLaborCost;
+  const totalMaterialCost = ductMaterialCost + fittingMaterialCost + insulationCost + internalInsulationCost + flexDuctCost + vdCostValue + offtakeCostValue;
+  const totalLaborCost = baseDuctLaborCost + fittingLaborCost + insulationLaborCost + flexDuctLaborCost;
   const totalCost = totalMaterialCost + totalLaborCost;
 
   return {
@@ -301,13 +331,13 @@ export function calculateDuctLineItem(row, prices = {}) {
     linearFeet: Number(linearFeet),
     surfaceArea: Math.round(surfaceArea * 100) / 100,
     surfaceAreaWithWaste: Math.round(surfaceAreaWithWaste * 100) / 100,
-    weight: Math.round(weight * 10) / 10,
-    laborHours: Math.round(totalLaborHours * 10) / 10,
+    weight: Math.round(weight * 10) / 10,         // base area × lbs/sqft (matches Excel)
+    laborHours: Math.round(totalLaborHours * 10) / 10, // for workforce planning display
     ductMaterialCost: Math.round(ductMaterialCost * 100) / 100,
     internalInsulationCost: Math.round(internalInsulationCost * 100) / 100,
     flexDuctCost: Math.round(flexDuctCost * 100) / 100,
-    vdCost: Math.round(vdCost * 100) / 100,
-    offtakeCost: Math.round(offtakeCost * 100) / 100,
+    vdCost: Math.round(vdCostValue * 100) / 100,
+    offtakeCost: Math.round(offtakeCostValue * 100) / 100,
     fittingMaterialCost: Math.round(fittingMaterialCost * 100) / 100,
     insulationCost: Math.round(insulationCost * 100) / 100,
     insulationLaborCost: Math.round(insulationLaborCost * 100) / 100,
@@ -334,9 +364,27 @@ export function calculateDuctBatch(rows, prices = {}) {
       laborHours: acc.laborHours + r.laborHours,
       materialCost: acc.materialCost + r.totalMaterialCost,
       laborCost: acc.laborCost + r.laborCost,
+      insulationCost: acc.insulationCost + r.insulationCost,
+      internalInsulationCost: acc.internalInsulationCost + r.internalInsulationCost,
+      flexDuctCost: acc.flexDuctCost + r.flexDuctCost,
+      vdCost: acc.vdCost + r.vdCost,
+      offtakeCost: acc.offtakeCost + r.offtakeCost,
       totalCost: acc.totalCost + r.totalCost,
     }),
-    { linearFeet: 0, surfaceArea: 0, weight: 0, laborHours: 0, materialCost: 0, laborCost: 0, totalCost: 0 }
+    {
+      linearFeet: 0,
+      surfaceArea: 0,
+      weight: 0,
+      laborHours: 0,
+      materialCost: 0,
+      laborCost: 0,
+      insulationCost: 0,
+      internalInsulationCost: 0,
+      flexDuctCost: 0,
+      vdCost: 0,
+      offtakeCost: 0,
+      totalCost: 0,
+    }
   );
 
   // Round all totals

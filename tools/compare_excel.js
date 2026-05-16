@@ -4,7 +4,7 @@ const vm = require('vm');
 const xlsx = require('xlsx');
 
 function extractConst(source, name) {
-  const re = new RegExp(`${name}\s*=\s*([\s\S]*?);\n`);
+  const re = new RegExp(`(?:export\s+)?const\s+${name}\s*=\s*([\s\S]*?);`, 'm');
   const match = source.match(re);
   if (!match) return null;
   const rhs = match[1];
@@ -21,7 +21,7 @@ function extractConst(source, name) {
 }
 
 function extractExportedArray(source, exportName) {
-  const re = new RegExp(`export const ${exportName}\s*=\s*([\\s\\S]*?\]);`);
+  const re = new RegExp(`(?:export\s+)?const\s+${exportName}\s*=\s*([\\s\\S]*?\]);`, 'm');
   const m = source.match(re);
   if (!m) return null;
   try {
@@ -126,6 +126,85 @@ function main() {
   // As a fallback, print a few rows from the sheet around where numeric tables were found
   console.log('\nSample numeric rows from sheet (first 20 rows):');
   for (let i = 0; i < Math.min(20, rows.length); i++) console.log(i + ':', rows[i]);
+
+  // Try extracting a few named constants from sheet rows
+  function findLabelValue(rows, label) {
+    for (let r = 0; r < rows.length; r++) {
+      const row = rows[r];
+      if (!row) continue;
+      for (let c = 0; c < row.length; c++) {
+        const cell = row[c];
+        if (typeof cell === 'string' && cell.toLowerCase().includes(label.toLowerCase())) {
+          // look right for a numeric value
+          for (let k = c + 1; k < Math.min(c + 6, row.length); k++) {
+            if (typeof row[k] === 'number') return row[k];
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  const sheetMetalCost = findLabelValue(rows, 'Sheet Metal Material Cost') || findLabelValue(rows, 'Sheet Cost');
+  const ductWrapMat = findLabelValue(rows, 'Duct Wrap Material Cost');
+  const ductWrapLabor = findLabelValue(rows, 'Duct Wrap Labor Cost');
+  const sheetLabor = findLabelValue(rows, 'Sheet Metal Labor');
+  const uplift = findLabelValue(rows, 'Cost Uplift For Int. Ins.') || findLabelValue(rows, 'Cost Uplift');
+
+  console.log('\nExtracted constants from sheet:');
+  console.log('sheetMetalCostPerLb =', sheetMetalCost);
+  console.log('ductWrapMaterialPerSqFt =', ductWrapMat);
+  console.log('ductWrapLaborPerFt =', ductWrapLabor);
+  console.log('sheetMetalLaborRate =', sheetLabor);
+  console.log('internalInsulationUplift =', uplift);
+
+  // Compute numeric example using sheet constants: 24x12, L=18
+  function parseSizeStr(size) {
+    const s = String(size).toLowerCase();
+    if (s.includes('x') || s.includes('*')) {
+      const parts = s.split(/[x*]/).map((p) => parseFloat(p));
+      return { type: 'rectangular', width: parts[0], height: parts[1] };
+    }
+    const d = parseFloat(s);
+    if (!isNaN(d)) return { type: 'round', diameter: d };
+    return null;
+  }
+
+  function calcSurfaceArea(parsed, L) {
+    if (!parsed) return 0;
+    if (parsed.type === 'round') return (Math.PI * parsed.diameter * L) / 12;
+    return (2 * (parsed.width + parsed.height) * L) / 12;
+  }
+
+  function calcWeightLb(areaSqFt, gaugeWeightKgM2) {
+    const areaM2 = areaSqFt * 0.092903;
+    const weightKg = areaM2 * gaugeWeightKgM2;
+    return weightKg * 2.20462;
+  }
+
+  // Use gauge weight table from sheet if available else fallback values
+  const gaugeWeights = {
+    22: 6.86,
+    24: 5.64,
+    26: 4.42,
+    28: 3.81,
+  };
+
+  const sampleSize = '24x12';
+  const L = 18;
+  const parsed = parseSizeStr(sampleSize);
+  const area = calcSurfaceArea(parsed, L);
+  const areaWithWaste = area * 1.10; // assume 10% waste
+  const maxDim = parsed.type === 'round' ? parsed.diameter : Math.max(parsed.width, parsed.height);
+  const gauge = (maxDim <= 12) ? 26 : (maxDim <= 30) ? 24 : (maxDim <= 42) ? 22 : (maxDim <= 60) ? 20 : 18;
+  const weightLb = calcWeightLb(areaWithWaste, gaugeWeights[gauge] || gaugeWeights[26]);
+  const ductMatCostRect = Math.round((weightLb * (sheetMetalCost || 4.0)) / 10) * 10; // nearest 10
+
+  console.log('\nNumeric example (24x12, L=18):');
+  console.log('area (sqft)=', area.toFixed(3));
+  console.log('area with waste=', areaWithWaste.toFixed(3));
+  console.log('gauge=', gauge, 'weight lb=', weightLb.toFixed(3));
+  console.log('rectangular duct material cost (rounded to nearest 10)=', ductMatCostRect);
 }
 
 main();

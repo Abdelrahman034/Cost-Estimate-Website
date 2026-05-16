@@ -14,6 +14,7 @@ import {
 const nav = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/duct', label: 'Metal Duct', icon: Wind },
+  { to: '/settings', label: 'Settings', icon: Wrench },
   { to: '/drawings', label: 'Drawing Analyzer', icon: FileImage, ai: true },
   { to: '/prices', label: 'Live Prices', icon: TrendingUp, ai: true },
   { to: '/proposal', label: 'Proposal Generator', icon: FileText, ai: true },
