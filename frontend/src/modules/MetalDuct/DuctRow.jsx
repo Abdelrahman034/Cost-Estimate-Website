@@ -2,12 +2,21 @@ import React from 'react';
 import { Circle, CheckCircle2, Trash2 } from 'lucide-react';
 import { selectGauge, getMaxDimension, calculateSurfaceArea, detectShape } from '../../utils/ductCalculations';
 
-export default function DuctRow({ row, result, index, onChange, onRemove, sizePresets = [] }) {
+export default function DuctRow({ row, result, index, onChange, onRemove, sizePresets = [], unitLabel = 'ft', showScaleHint = false, scaleFactor = 1.0 }) {
   const maxDim = getMaxDimension(row.size);
   const gauge = row.size ? selectGauge(maxDim) : null;
   const shape = row.size ? detectShape(row.size) : null;
+
+  // Actual feet after applying scale factor (mirrors Excel J4 = E2 × D4)
+  const rawLf = Number(row.linearFeet || 0);
+  const actualLf = rawLf * scaleFactor;
+
+  // Preview area matches Excel N4: no waste, deduct flex length when flex is checked
+  const rigidLf = row.flexDuct
+    ? Math.max(0, actualLf - 5)
+    : actualLf;
   const previewArea = row.size && row.linearFeet
-    ? calculateSurfaceArea(row.size, row.linearFeet).toFixed(1)
+    ? calculateSurfaceArea(row.size, rigidLf).toFixed(1)
     : null;
 
   const bg = index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50';
@@ -65,7 +74,7 @@ export default function DuctRow({ row, result, index, onChange, onRemove, sizePr
         )}
       </td>
 
-      {/* Linear Feet */}
+      {/* Linear measurement (mm / in / ft / custom) */}
       <td className="px-3 py-2">
         <input
           className="input text-xs"
@@ -75,6 +84,12 @@ export default function DuctRow({ row, result, index, onChange, onRemove, sizePr
           value={row.linearFeet}
           onChange={(e) => onChange(row.id, 'linearFeet', e.target.value)}
         />
+        {/* Show computed feet when a scale factor is active */}
+        {showScaleHint && rawLf > 0 && (
+          <div className="text-xs text-blue-500 mt-0.5 font-mono">
+            = {actualLf.toFixed(2)} ft
+          </div>
+        )}
         {previewArea && !hasResult && (
           <div className="text-xs text-gray-400 mt-0.5">{previewArea} sqft</div>
         )}

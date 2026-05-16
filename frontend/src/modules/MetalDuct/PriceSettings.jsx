@@ -3,10 +3,29 @@ import { X, RefreshCw } from 'lucide-react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 
+// Preset scale factors for common units → feet
+const UNIT_PRESETS = [
+  { label: 'Feet (ft)',         value: 'ft',     factor: 1.0       },
+  { label: 'Inches (in)',       value: 'in',     factor: 0.08333   },
+  { label: 'Millimetres (mm)', value: 'mm',     factor: 0.003281  },
+  { label: 'Centimetres (cm)', value: 'cm',     factor: 0.032808  },
+  { label: 'Custom',            value: 'custom', factor: null       },
+];
+
 export default function PriceSettings({ prices, overhead, onPricesChange, onOverheadChange, onClose }) {
   const [loading, setLoading] = useState(false);
   const [draft, setDraft] = useState(prices);
   const [draftOverhead, setDraftOverhead] = useState(overhead);
+
+  // When the user picks a preset unit, auto-fill the scale factor (unless Custom)
+  const handleUnitChange = (unitValue) => {
+    const preset = UNIT_PRESETS.find((p) => p.value === unitValue);
+    setDraft((prev) => ({
+      ...prev,
+      measureUnit: unitValue,
+      measureScaleFactor: preset?.factor ?? prev.measureScaleFactor,
+    }));
+  };
 
   const fetchLivePrices = async () => {
     setLoading(true);
@@ -47,6 +66,63 @@ export default function PriceSettings({ prices, overhead, onPricesChange, onOver
         <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1">
           <X size={18} />
         </button>
+      </div>
+
+      {/* ── Measurement Unit & Scale Factor ── */}
+      <div className="mb-5 p-3 rounded-xl bg-white border border-blue-200">
+        <p className="text-xs font-semibold uppercase tracking-wider text-blue-600 mb-3">
+          Linear Measurement Unit
+        </p>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 items-end">
+          <div>
+            <label className="label">Input Unit</label>
+            <select
+              className="input"
+              value={draft.measureUnit ?? 'ft'}
+              onChange={(e) => handleUnitChange(e.target.value)}
+            >
+              {UNIT_PRESETS.map((p) => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-400 mt-1">Unit you type into the Linear column</p>
+          </div>
+          <div>
+            <label className="label">Scale Factor (→ ft)</label>
+            <input
+              type="number"
+              step="0.000001"
+              className="input"
+              value={draft.measureScaleFactor ?? 1.0}
+              onChange={(e) =>
+                setDraft((prev) => ({
+                  ...prev,
+                  measureUnit: 'custom',
+                  measureScaleFactor: parseFloat(e.target.value) || 1.0,
+                }))
+              }
+            />
+            <p className="text-xs text-gray-400 mt-1">Multiply input by this to get feet</p>
+          </div>
+          <div className="md:col-span-2 flex items-center">
+            <div className="text-sm text-gray-600 bg-gray-50 rounded-lg px-4 py-2.5 border border-gray-200 w-full">
+              <span className="font-semibold text-gray-800">Preview: </span>
+              <span>
+                1 {draft.measureUnit === 'custom' ? 'unit' : draft.measureUnit ?? 'ft'}
+                {' × '}
+                <span className="font-mono text-blue-700">{(draft.measureScaleFactor ?? 1).toFixed(6)}</span>
+                {' = '}
+                <span className="font-semibold text-green-700">
+                  {(draft.measureScaleFactor ?? 1).toFixed(4)} ft
+                </span>
+                {' '}
+                <span className="text-gray-400">
+                  ({((draft.measureScaleFactor ?? 1) * 12).toFixed(2)} in)
+                </span>
+              </span>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">

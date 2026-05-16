@@ -259,6 +259,14 @@ export function calculateDuctLineItem(row, prices = {}) {
     roundDuctIncidentalsPct,                             // V2   = 0.25 — round duct
   } = prices;
 
+  // ── Scale factor (mirrors Excel E2 "Scale - Ft/Unit") ───────────────────
+  // User may type measurements in mm, inches, or any drawing unit.
+  // measureScaleFactor converts that raw value to actual feet.
+  // Default 1.0 = user is already entering feet (backward-compatible).
+  const measureScaleFactor = (prices.measureScaleFactor != null && prices.measureScaleFactor > 0)
+    ? prices.measureScaleFactor
+    : 1.0;
+
   const sheetMetalCost   = sheetMetalCostPerLb    ?? SHEET_METAL_COST_PER_LB;   // AC6
   const weightLbsPerSqFt = sheetMetalLbsPerFt2    ?? 1.24967;                   // AC5
   const laborRatePerFt   = sheetMetalLaborPerFt   ?? SHEET_METAL_LABOR_RATE;    // AC9
@@ -273,18 +281,25 @@ export function calculateDuctLineItem(row, prices = {}) {
   const rdIncRate        = roundDuctIncidentalsPct  !== undefined ? roundDuctIncidentalsPct  : ROUND_DUCT_INCIDENTALS_PCT;  // V2
 
   // ── Core geometry ────────────────────────────────────────────────────────
-  const lf               = Number(linearFeet) || 0;
+  // Apply scale factor: converts user's raw input (mm, in, custom unit…) → actual feet
+  // Mirrors Excel: J4 = $E$2 × D4  (Calc. Length = Scale × Sheet Measurement)
+  const lf               = (Number(linearFeet) || 0) * measureScaleFactor;
   const maxDim           = getMaxDimension(size);
   const gauge            = selectGauge(maxDim);
   const shape            = detectShape(size);
-  // N4 equivalent: base area, no waste (Excel does NOT apply waste to area used for material/weight)
-  const surfaceArea      = calculateSurfaceArea(size, lf);
-  // surfaceAreaWithWaste kept for display in the UI sqft column only
-  const surfaceAreaWithWaste = applyWasteFactor(surfaceArea, wasteFactor);
-  // O4: weight = lbs/ft² × base area  (AC5 × N4)
+
+  // N4: Excel uses J4 directly for area — NO waste factor.
+  // When flex is checked (I4="y"): area = M4 × MAX(0, J4 - AC13)
+  //   → the flex portion is pre-fab tubing; only the rigid sheet metal section is estimated.
+  // When no flex: area = M4 × J4
+  // Source: =IF(E4="",0, M4*IF(I4="y",MAX(0,J4-$AC$13),J4))
+  const rigidLf          = flexDuct ? Math.max(0, lf - maxFlexLen) : lf;
+  const surfaceArea      = calculateSurfaceArea(size, rigidLf);   // sheet metal area only (N4)
+
+  // O4: weight = AC5 × N4  (lbs/ft² × base area, no waste)
   const weight           = surfaceArea * weightLbsPerSqFt;
   // Labor hours: informational / workforce planning (not used for $ cost)
-  const laborHours       = calculateLaborHours(surfaceAreaWithWaste, gauge, difficultyFactor);
+  const laborHours       = calculateLaborHours(surfaceArea, gauge, difficultyFactor);
 
   // ── Material costs ───────────────────────────────────────────────────────
   // P4: square duct material = ROUND(weight × $/lb, -1)
@@ -300,11 +315,13 @@ export function calculateDuctLineItem(row, prices = {}) {
   const internalInsulationCost = (internalInsulation && ductMaterialCost > 0)
     ? ductMaterialCost * internalUplift : 0;
 
-  // S4: flex duct material (simplified: LF × $2/ft — full size-table lookup kept as future work)
+  // S4: flex duct material — costed on the flex portion length (min of lf and maxFlexLen)
+  // Labor for flex is a fixed $/run charge (AC10 short / AC11 long) based on total run length
   let flexDuctCost      = 0;
   let flexDuctLaborCost = 0;
   if (flexDuct && lf > 0) {
-    flexDuctCost      = lf * 2.0;
+    const flexLf      = Math.min(lf, maxFlexLen);   // flex material up to AC13 ft
+    flexDuctCost      = flexLf * 2.0;               // $2/ft flex tubing material
     flexDuctLaborCost = lf > maxFlexLen ? flexLong : flexShort;  // AC10/AC11
   }
 
@@ -333,8 +350,10 @@ export function calculateDuctLineItem(row, prices = {}) {
 
   // ── Labor costs ──────────────────────────────────────────────────────────
   // X4: ROUNDUP(J4×AC9 + IF(insulated, AC8×J4, 0) + IF(offtake, AC12, 0) + IF(vd, 0.5×25, 0), -1)
-  const sheetMetalLaborRaw  = lf * laborRatePerFt;                        // J4 × AC9
-  const insulationLaborRaw  = insulated ? lf * ductWrapLabor : 0;          // AC8 × J4
+  // Labor uses FULL J4 (entire run length) — not the flex-deducted rigidLf.
+  // Hanging, sealing, and installing labour covers the whole run regardless of flex portion.
+  const sheetMetalLaborRaw  = lf * laborRatePerFt;                        // J4 × AC9 (full run)
+  const insulationLaborRaw  = insulated ? lf * ductWrapLabor : 0;          // AC8 × J4 (full run)
   const offtakeLaborRaw     = offtake   ? offtakeCostVal : 0;              // AC12 in labor
   const vdLaborRaw          = vd        ? 0.5 * vdCostDefault : 0;        // 0.5 × 25 in labor
   const fittingLaborCost    = fittingLaborHours * laborRate;               // extra for fittings
@@ -352,9 +371,11 @@ export function calculateDuctLineItem(row, prices = {}) {
     size,
     shape,
     gauge,
-    linearFeet: lf,
+    linearFeet: lf,                                           // actual feet (after scale)
+    rawLinearFeet: Number(linearFeet) || 0,                   // what the user typed
+    rigidLinearFeet:      rigidLf,
     surfaceArea:          Math.round(surfaceArea          * 100) / 100,
-    surfaceAreaWithWaste: Math.round(surfaceAreaWithWaste * 100) / 100,
+    surfaceAreaWithWaste: Math.round(surfaceArea          * 100) / 100,  // alias — no waste in Excel N4
     weight:               Math.round(weight               *  10) /  10,
     laborHours:           Math.round(totalLaborHours      *  10) /  10,
     ductMaterialCost:        Math.round(ductMaterialCost        * 100) / 100,

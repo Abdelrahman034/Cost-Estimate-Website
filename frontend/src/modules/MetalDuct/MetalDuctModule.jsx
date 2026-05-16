@@ -96,6 +96,13 @@ export default function MetalDuctModule() {
   const [rows, setRows] = useState([newRow('row-1'), newRow('row-2'), newRow('row-3')]);
   const { prices } = useContext(SettingsContext);
   const navigate = useNavigate();
+
+  // Derive the column label for the linear measurement column
+  const unitLabel = prices.measureUnit
+    ? prices.measureUnit === 'custom' ? 'unit' : prices.measureUnit
+    : 'ft';
+  const scaleFactor = prices.measureScaleFactor ?? 1.0;
+  const showScaleHint = scaleFactor !== 1.0;
   const [results, setResults] = useState(null);
 
   const calculateFromRows = useCallback((sourceRows) => {
@@ -207,7 +214,14 @@ export default function MetalDuctModule() {
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 w-32">Size</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 w-24">Lin. Ft</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 w-24">
+                  Lin. ({unitLabel})
+                  {showScaleHint && (
+                    <div className="text-xs font-normal text-blue-500">
+                      ×{scaleFactor} → ft
+                    </div>
+                  )}
+                </th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 w-28">Application</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 w-20">Gauge</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 w-24">Sq Ft</th>
@@ -234,6 +248,9 @@ export default function MetalDuctModule() {
                     index={i}
                     onChange={handleRowChange}
                     onRemove={() => removeRow(row.id)}
+                    unitLabel={unitLabel}
+                    showScaleHint={showScaleHint}
+                    scaleFactor={scaleFactor}
                   />
                 );
               })}
