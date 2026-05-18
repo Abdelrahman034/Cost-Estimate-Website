@@ -2,7 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Upload, FileImage, CheckCircle, AlertCircle, Send, Loader } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { drawingsApi, emailsApi } from '../../services/api';
+import { drawingsApi, emailsApi } from '@services/api';
 
 export default function DrawingAnalyzer({ projectInfo }) {
   const [file, setFile] = useState(null);

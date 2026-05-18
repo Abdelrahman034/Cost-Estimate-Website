@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { rollUpSummary, applyOverheadAndMargin } from '../../../utils/ductCalculations';
+import { rollUpSummary, applyOverheadAndMargin } from '@utils/ductCalculations';
 import { DollarSign, TrendingUp, Clock, Package } from 'lucide-react';
 
 const defaultModules = [

@@ -1,6 +1,6 @@
 const express = require('express');
 const router  = express.Router();
-const { projects, estimates } = require('../services/dbService');
+const { projects, estimates } = require('../services');
 
 // GET /api/projects — list all
 router.get('/', (req, res) => {

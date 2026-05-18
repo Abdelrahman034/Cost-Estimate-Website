@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { X, RefreshCw, Globe, PenLine } from 'lucide-react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
-import { DIFFUSER_TYPES, DEFAULT_GRD_RATE, DEFAULT_MISC_PCT } from '../../utils/diffuserCalculations';
+import { DIFFUSER_TYPES, DEFAULT_GRD_RATE, DEFAULT_MISC_PCT } from '@utils/diffuserCalculations';
 
 // Representative US market prices from Greenheck / Titus / Price Industries
 // Used as seed values when the user first switches to Market mode.

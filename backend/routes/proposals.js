@@ -2,10 +2,12 @@ const express = require('express');
 const router  = express.Router();
 const path    = require('path');
 const fs      = require('fs');
-const { generateProposalContent } = require('../services/aiService');
-const { generateProposalPDF }     = require('../services/pdfService');
-const { sendProposal }            = require('../services/emailService');
-const { proposals }               = require('../services/dbService');
+const {
+  generateProposalContent,
+  generateProposalPDF,
+  sendProposal,
+  proposals,
+} = require('../services');
 
 const outputsDir = path.join(__dirname, '..', 'outputs');
 if (!fs.existsSync(outputsDir)) fs.mkdirSync(outputsDir, { recursive: true });

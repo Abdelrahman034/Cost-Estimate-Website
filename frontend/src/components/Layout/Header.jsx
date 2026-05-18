@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Menu, Settings, FolderOpen, ChevronDown, Save, FolderInput, Trash2, Check } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { projectsApi } from '../../services/api';
+import { projectsApi } from '@services/api';
 
 export default function Header({ onMenuClick, projectInfo, onProjectInfoChange, onProjectLoad }) {
   const [showProjectModal, setShowProjectModal] = useState(false);

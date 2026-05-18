@@ -1,6 +1,6 @@
 import React, { useState, useContext } from 'react';
-import PriceSettings from '../modules/MetalDuct/PriceSettings';
-import { SettingsContext } from '../contexts/SettingsContext';
+import PriceSettings from '@modules/MetalDuct/PriceSettings';
+import { SettingsContext } from '@contexts/SettingsContext';
 import toast from 'react-hot-toast';
 
 export default function SettingsPage() {

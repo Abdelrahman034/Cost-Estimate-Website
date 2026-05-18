@@ -1,27 +1,7 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import {
-  LayoutDashboard,
-  Wind,
-  Gauge,
-  FileImage,
-  TrendingUp,
-  FileText,
-  BarChart3,
-  X,
-  Wrench,
-} from 'lucide-react';
-
-const nav = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/duct', label: 'Metal Duct', icon: Wind },
-  { to: '/diffuser', label: 'Diffuser Schedule', icon: Gauge },
-  { to: '/settings', label: 'Settings', icon: Wrench },
-  { to: '/drawings', label: 'Drawing Analyzer', icon: FileImage, ai: true },
-  { to: '/prices', label: 'Live Prices', icon: TrendingUp, ai: true },
-  { to: '/proposal', label: 'Proposal Generator', icon: FileText, ai: true },
-  { to: '/summary', label: 'Bid Summary', icon: BarChart3 },
-];
+import { X, Wrench } from 'lucide-react';
+import { NAV_SECTIONS, ROUTE_PATHS } from '@config/navigation';
 
 export default function Sidebar({ open, onClose }) {
   return (
@@ -63,68 +43,34 @@ export default function Sidebar({ open, onClose }) {
 
         {/* Navigation */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider px-3 mb-3">
-            Estimating
-          </div>
-          {nav.slice(0, 3).map(({ to, label, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === '/'}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                  isActive
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-                }`
-              }
-            >
-              <Icon size={18} />
-              {label}
-            </NavLink>
-          ))}
-
-          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider px-3 mb-3 mt-5">
-            AI Features
-          </div>
-          {nav.slice(3, 6).map(({ to, label, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                  isActive
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-                }`
-              }
-            >
-              <Icon size={18} />
-              <span className="flex-1">{label}</span>
-              <span className="text-xs bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded font-medium">
-                AI
-              </span>
-            </NavLink>
-          ))}
-
-          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider px-3 mb-3 mt-5">
-            Reports
-          </div>
-          {nav.slice(6).map(({ to, label, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                  isActive
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-                }`
-              }
-            >
-              <Icon size={18} />
-              {label}
-            </NavLink>
+          {NAV_SECTIONS.map((section) => (
+            <div key={section.title}>
+              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider px-3 mb-3 mt-5 first:mt-0">
+                {section.title}
+              </div>
+              {section.items.map(({ to, label, icon: Icon, ai }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  end={to === ROUTE_PATHS.DASHBOARD}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                      isActive
+                        ? 'bg-blue-600 text-white'
+                        : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+                    }`
+                  }
+                >
+                  <Icon size={18} />
+                  <span className="flex-1">{label}</span>
+                  {ai && (
+                    <span className="text-xs bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded font-medium">
+                      AI
+                    </span>
+                  )}
+                </NavLink>
+              ))}
+            </div>
           ))}
         </nav>
 

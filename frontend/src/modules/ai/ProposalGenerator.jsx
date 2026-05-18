@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { FileText, Download, Send, Loader, DollarSign } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { proposalsApi } from '../../services/api';
+import { proposalsApi } from '@services/api';
 
 export default function ProposalGenerator({ projectInfo }) {
   const [estimate, setEstimate] = useState({

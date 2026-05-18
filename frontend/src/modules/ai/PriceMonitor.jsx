@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { RefreshCw, TrendingUp, TrendingDown, Minus, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { pricesApi } from '../../services/api';
+import { pricesApi } from '@services/api';
 
 const TrendIcon = ({ trend }) => {
   if (trend === 'up') return <TrendingUp size={14} className="text-red-500" />;

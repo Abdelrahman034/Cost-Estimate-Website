@@ -3,14 +3,10 @@ const express = require('express');
 const cors    = require('cors');
 const path    = require('path');
 
-const pricesRouter   = require('./routes/prices');
-const drawingsRouter = require('./routes/drawings');
-const emailsRouter   = require('./routes/emails');
-const proposalsRouter = require('./routes/proposals');
-const projectsRouter = require('./routes/projects');
+const { registerRoutes } = require('./routes');
 
 // Init SQLite DB on startup
-const { getDB } = require('./services/dbService');
+const { getDB } = require('./services');
 try {
   getDB();
   console.log('SQLite database ready (data/estimator.db)');
@@ -28,11 +24,7 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/outputs', express.static(path.join(__dirname, 'outputs')));
 
-app.use('/api/projects',  projectsRouter);
-app.use('/api/prices',    pricesRouter);
-app.use('/api/drawings',  drawingsRouter);
-app.use('/api/emails',    emailsRouter);
-app.use('/api/proposals', proposalsRouter);
+registerRoutes(app);
 
 app.get('/api/health', (req, res) => {
   res.json({

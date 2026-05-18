@@ -1,6 +1,6 @@
 import React from 'react';
 import { Trash2 } from 'lucide-react';
-import { DIFFUSER_TYPES } from '../../utils/diffuserCalculations';
+import { DIFFUSER_TYPES } from '@utils/diffuserCalculations';
 
 const SOURCE_BADGE = {
   table:  { label: 'Table',  cls: 'bg-gray-100 text-gray-500' },

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Circle, CheckCircle2, Trash2 } from 'lucide-react';
-import { selectGauge, getMaxDimension, calculateSurfaceArea, detectShape } from '../../utils/ductCalculations';
+import { selectGauge, getMaxDimension, calculateSurfaceArea, detectShape } from '@utils/ductCalculations';
 
 export default function DuctRow({ row, result, index, onChange, onRemove, sizePresets = [], unitLabel = 'ft', showScaleHint = false, scaleFactor = 1.0 }) {
   const maxDim = getMaxDimension(row.size);

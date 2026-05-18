@@ -1,7 +1,6 @@
 const express = require('express');
 const router  = express.Router();
-const { getCurrentPrices } = require('../services/aiService');
-const { priceHistory }     = require('../services/dbService');
+const { getCurrentPrices, priceHistory } = require('../services');
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 

@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { Plus, Trash2, Download, Settings2 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { calculateDiffuserBatch } from '../../utils/diffuserCalculations';
+import { calculateDiffuserBatch } from '@utils/diffuserCalculations';
 import DiffuserRow from './DiffuserRow';
 import DiffuserTotals from './DiffuserTotals';
 import DiffuserPriceSettings from './DiffuserPriceSettings';

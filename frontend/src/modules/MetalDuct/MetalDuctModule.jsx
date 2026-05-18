@@ -1,10 +1,10 @@
 import React, { useState, useCallback, useContext } from 'react';
 import { Plus, Trash2, Download, RefreshCw, Info } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { calculateDuctBatch } from '../../utils/ductCalculations';
+import { calculateDuctBatch } from '@utils/ductCalculations';
 import DuctRow from './DuctRow';
 import DuctTotals from './DuctTotals';
-import { SettingsContext } from '../../contexts/SettingsContext';
+import { SettingsContext } from '@contexts/SettingsContext';
 import { useNavigate } from 'react-router-dom';
 
 const DEFAULT_PRICES = {

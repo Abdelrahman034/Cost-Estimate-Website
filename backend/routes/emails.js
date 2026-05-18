@@ -1,7 +1,6 @@
 const express = require('express');
 const router  = express.Router();
-const { generateSupplierRFQ } = require('../services/aiService');
-const { sendRFQEmail }        = require('../services/emailService');
+const { generateSupplierRFQ, sendRFQEmail } = require('../services');
 
 router.post('/generate-rfq', async (req, res) => {
   const { units, projectInfo } = req.body;

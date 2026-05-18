@@ -61,20 +61,45 @@ EMAIL_PASS=your-app-password        # Gmail App Password (not your login passwor
 
 ```
 cost-estimator/
-├── frontend/          React + Vite + Tailwind
+├── frontend/                React + Vite + Tailwind
 │   └── src/
 │       ├── components/
-│       │   ├── Layout/
-│       │   ├── modules/MetalDuct/
-│       │   ├── modules/Summary/
-│       │   └── ai/
-│       ├── utils/ductCalculations.js   ← All Excel formulas live here
-│       └── services/api.js
-├── backend/           Node.js + Express
-│   ├── routes/        prices, drawings, emails, proposals
-│   └── services/      claudeService, emailService, pdfService
+│       │   └── Layout/      Shared app shell components
+│       ├── config/
+│       │   └── navigation.js  Route paths + sidebar navigation sections
+│       ├── modules/
+│       │   ├── MetalDuct/    Duct estimator feature
+│       │   ├── Diffuser/     Diffuser schedule feature
+│       │   ├── Summary/      Bid summary feature
+│       │   └── ai/           AI feature pages (drawings, prices, proposal)
+│       ├── contexts/         Global settings state
+│       ├── pages/            App-level pages (Dashboard, Settings)
+│       ├── services/api.js   Backend API client
+│       └── utils/            Excel logic and calculators
+├── backend/                 Node.js + Express
+│   ├── routes/
+│   │   ├── index.js         Central route registration
+│   │   └── *.js             Feature route handlers
+│   ├── services/
+│   │   ├── ai/              AI providers and prompts
+│   │   ├── communication/   Email delivery services
+│   │   ├── data/            SQLite data access
+│   │   ├── documents/       PDF generation services
+│   │   └── index.js         Consolidated service exports
+│   └── data/                SQLite database files
 └── START.bat          One-click launcher
 ```
+
+Frontend import aliases are configured in `frontend/vite.config.js` and `frontend/jsconfig.json`:
+
+- `@` -> `src`
+- `@modules` -> `src/modules`
+- `@components` -> `src/components`
+- `@config` -> `src/config`
+- `@services` -> `src/services`
+- `@utils` -> `src/utils`
+- `@contexts` -> `src/contexts`
+- `@pages` -> `src/pages`
 
 ---
 

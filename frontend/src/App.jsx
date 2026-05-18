@@ -1,17 +1,20 @@
 import React, { useState } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
-import Sidebar from './components/Layout/Sidebar';
-import Header from './components/Layout/Header';
-import MetalDuctModule from './modules/MetalDuct/MetalDuctModule';
-import DiffuserModule from './modules/Diffuser/DiffuserModule';
-import SettingsPage from './pages/SettingsPage';
-import { SettingsProvider } from './contexts/SettingsContext';
-import DrawingAnalyzer from './components/ai/DrawingAnalyzer';
-import PriceMonitor from './components/ai/PriceMonitor';
-import ProposalGenerator from './components/ai/ProposalGenerator';
-import SummaryModule from './components/modules/Summary/SummaryModule';
-import Dashboard from './pages/Dashboard';
+import Sidebar from '@components/Layout/Sidebar';
+import Header from '@components/Layout/Header';
+import {
+  MetalDuctModule,
+  DiffuserModule,
+  DrawingAnalyzer,
+  PriceMonitor,
+  ProposalGenerator,
+  SummaryModule
+} from '@modules';
+import SettingsPage from '@pages/SettingsPage';
+import { SettingsProvider } from '@contexts/SettingsContext';
+import Dashboard from '@pages/Dashboard';
+import { ROUTE_PATHS } from '@config/navigation';
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -42,15 +45,15 @@ export default function App() {
 
           <main className="flex-1 overflow-y-auto p-6">
             <Routes>
-              <Route path="/" element={<Dashboard projectInfo={projectInfo} />} />
-              <Route path="/duct" element={<MetalDuctModule projectInfo={projectInfo} />} />
-              <Route path="/diffuser" element={<DiffuserModule />} />
-              <Route path="/drawings" element={<DrawingAnalyzer projectInfo={projectInfo} />} />
-              <Route path="/prices" element={<PriceMonitor />} />
-              <Route path="/proposal" element={<ProposalGenerator projectInfo={projectInfo} />} />
-              <Route path="/summary" element={<SummaryModule projectInfo={projectInfo} />} />
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
+              <Route path={ROUTE_PATHS.DASHBOARD} element={<Dashboard projectInfo={projectInfo} />} />
+              <Route path={ROUTE_PATHS.DUCT} element={<MetalDuctModule projectInfo={projectInfo} />} />
+              <Route path={ROUTE_PATHS.DIFFUSER} element={<DiffuserModule />} />
+              <Route path={ROUTE_PATHS.DRAWINGS} element={<DrawingAnalyzer projectInfo={projectInfo} />} />
+              <Route path={ROUTE_PATHS.PRICES} element={<PriceMonitor />} />
+              <Route path={ROUTE_PATHS.PROPOSAL} element={<ProposalGenerator projectInfo={projectInfo} />} />
+              <Route path={ROUTE_PATHS.SUMMARY} element={<SummaryModule projectInfo={projectInfo} />} />
+              <Route path={ROUTE_PATHS.SETTINGS} element={<SettingsPage />} />
+              <Route path="*" element={<Navigate to={ROUTE_PATHS.DASHBOARD} replace />} />
             </Routes>
           </main>
         </div>
