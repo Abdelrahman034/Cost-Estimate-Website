@@ -1,0 +1,749 @@
+/**
+ * Unit Schedule Calculation Engine
+ * Ported from Excel workbook — "Unit Sched" sheet
+ *
+ * Architecture note (future backend migration):
+ *   Every pricing table here maps 1-to-1 to a database table.
+ *   Every lookup function maps 1-to-1 to a SQL SELECT with interpolation.
+ *   When the Spring Boot API is ready, replace the table constants with
+ *   API calls (see API_TODO comments) and keep the interpolation helpers.
+ *
+ * Database entity equivalents:
+ *   SERVICE_MATERIAL_TABLE  → unit_service_material_pricing
+ *   SERVICE_LABOR_TABLE     → unit_service_labor_pricing
+ *   PACKAGED_ACCESSORY_*    → packaged_unit_accessory_pricing
+ *   SPLIT_ACCESSORY_*       → split_unit_accessory_pricing
+ *   WALL_MOUNT_ACCESSORY_*  → wall_mount_accessory_pricing
+ *   VRF_ACCESSORY_*         → vrf_accessory_pricing
+ */
+
+// ─── CONSTANTS ────────────────────────────────────────────────────────────────
+
+export const SYSTEM_TYPES = {
+  PACKAGED:    'Packaged Unit',
+  SPLIT:       'Standard Split',
+  WALL_MOUNT:  'Wall Mount Split',
+  VRF:         'VRF',
+  VAV_FBP:     'VAV/FBP',
+  CHILLER:     'Chiller',
+  BOILER:      'Boiler',
+};
+
+export const TECH_RATE = 25; // $/hr — from Excel BR row in Packaged Units pricing
+export const MISC_CONSUMABLES_PCT = 0.03; // 3% of accessories
+
+// ─── SERVICE OF EXISTING UNITS — Pricing Tables ──────────────────────────────
+// Source: Unit Sched rows 19-22 (cols I-X)
+// Each entry: { tons, material: {byType}, labor: {byType} }
+//
+// API_TODO: GET /api/pricing/service-units?version=current
+//           Returns array of these entries from unit_service_pricing table
+
+export const SERVICE_PRICING_TABLE = [
+  {
+    tons: 0,
+    material: { packaged: 150, split: 150, wallMount: 97.5,   vrf: 300,  vav: 195,  chiller: 650,  boiler: 300 },
+    labor:    { packaged: 100, split: 100, wallMount: 75,     vrf: 400,  vav: 50,   chiller: 400,  boiler: 400 },
+  },
+  {
+    tons: 5,
+    material: { packaged: 150, split: 150, wallMount: 97.5,   vrf: 300,  vav: 195,  chiller: 650,  boiler: 300 },
+    labor:    { packaged: 100, split: 100, wallMount: 75,     vrf: 400,  vav: 50,   chiller: 400,  boiler: 400 },
+  },
+  {
+    tons: 10,
+    material: { packaged: 175, split: 175, wallMount: 113.75, vrf: 350,  vav: 227.5,chiller: 750,  boiler: 350 },
+    labor:    { packaged: 125, split: 125, wallMount: 100,    vrf: 500,  vav: 75,   chiller: 600,  boiler: 450 },
+  },
+  {
+    tons: 20,
+    material: { packaged: 175, split: 175, wallMount: 113.75, vrf: 400,  vav: 260,  chiller: 1200, boiler: 400 },
+    labor:    { packaged: 200, split: 200, wallMount: 150,    vrf: 800,  vav: 125,  chiller: 800,  boiler: 600 },
+  },
+  {
+    tons: 50,
+    material: { packaged: 250, split: 250, wallMount: 162.5,  vrf: 800,  vav: 520,  chiller: 1500, boiler: 600 },
+    labor:    { packaged: 400, split: 400, wallMount: 250,    vrf: 1000, vav: 200,  chiller: 1200, boiler: 800 },
+  },
+  {
+    tons: 75,
+    material: { packaged: 350, split: 350, wallMount: 227.5,  vrf: 1500, vav: 975,  chiller: 2000, boiler: 800 },
+    labor:    { packaged: 800, split: 800, wallMount: 300,    vrf: 1500, vav: 300,  chiller: 1600, boiler: 1200 },
+  },
+];
+
+const SYSTEM_TYPE_KEY_MAP = {
+  [SYSTEM_TYPES.PACKAGED]:   'packaged',
+  [SYSTEM_TYPES.SPLIT]:      'split',
+  [SYSTEM_TYPES.WALL_MOUNT]: 'wallMount',
+  [SYSTEM_TYPES.VRF]:        'vrf',
+  [SYSTEM_TYPES.VAV_FBP]:    'vav',
+  [SYSTEM_TYPES.CHILLER]:    'chiller',
+  [SYSTEM_TYPES.BOILER]:     'boiler',
+};
+
+// ─── PACKAGED UNIT — Accessory Pricing Tables ─────────────────────────────────
+// Source: Unit Sched rows 57-63, cols BD-CT
+//
+// API_TODO: GET /api/pricing/packaged-accessories
+//           Returns packaged_unit_accessory_pricing rows
+
+export const PKG_ACCESSORY_TABLES = {
+  // [tons, materialCost]
+  economizer:    [[0,1200],[5,1300],[10,1800],[20,2500],[50,6000],[75,15000]],
+  standardCurb:  [[0,450], [5,500], [10,600], [20,1000],[50,6000],[75,15000]],
+  metalRoofCurb: [[0,3500],[5,4000],[10,4800],[20,5500],[50,10000],[75,15000]],
+  curbAdapter:   [[0,1300],[5,1600],[10,1900],[20,3500],[50,8000], [75,13000]],
+  thermostat:    160,  // flat rate
+  statWire:      45,   // flat rate per unit
+  smokeDetector: 170,  // flat rate per detector
+  pvcCond:       86,   // flat rate
+  cuCond:        265,  // flat rate
+  sensors:       125,  // flat rate per sensor
+  newDrops:      [[0,400],[5,450],[10,500],[20,750],[50,1000],[75,1500]],
+  drumLouvers:   [[0,2400],[5,2400],[10,2600],[20,3100],[50,6000],[75,9000]],
+};
+
+// Labor hours by tons for packaged units (Tech Rate = $25/hr)
+// Source: Unit Sched cols BS-CT (labor hour lookup tables)
+export const PKG_LABOR_HOURS = {
+  baseUnit:      [[0,4],[5,5],[10,6],[20,7],[50,14],[75,28]],
+  standardCurb:  [[0,8],[5,8],[10,9],[20,10],[50,15],[75,30]],
+  metalRoofCurb: [[0,11],[5,11],[10,12],[20,14],[50,20],[75,40]],
+  curbAdapter:   [[0,3],[5,3],[10,3],[20,4],[50,8],[75,16]],
+  economizer:    [[0,5],[5,5],[10,5],[20,6],[50,8],[75,12]],
+  pvcCond:       [[0,4],[5,4],[10,4],[20,5],[50,6],[75,8]],
+  cuCond:        [[0,12],[5,12],[10,12],[20,14],[50,18],[75,22]],
+  thermostat:    [[0,1],[5,1],[10,1],[20,1],[50,2],[75,3]],
+  smokeDetector: [[0,2],[5,2],[10,2],[20,2],[50,3],[75,3]],
+  sensors:       [[0,2],[5,2],[10,2],[20,2],[50,2],[75,2]],
+  statWire:      [[0,3],[5,3],[10,3],[20,3],[50,3],[75,3]],
+  startUp:       [[0,4],[5,4],[10,4],[20,5],[50,7],[75,12]],
+  newDrops:      [[0,16],[5,16],[10,24],[20,32],[50,48],[75,56]],
+  drumLouvers:   [[0,16],[5,16],[10,20],[20,24],[50,32],[75,40]],
+};
+
+// ─── SPLIT SYSTEM — Accessory Pricing Tables ──────────────────────────────────
+// Source: Unit Sched rows 86-92, cols BI-DM
+//
+// API_TODO: GET /api/pricing/split-accessories
+
+export const SPLIT_ACCESSORY_TABLES = {
+  condenserRails:    [[0,350],[5,350],[10,380],[20,450],[50,1200],[75,4000]],
+  drainPan:          [[0,70], [5,80], [10,120],[20,180],[50,600], [75,1500]],
+  cuLineUnder100:    [[0,1128],[5,1208],[10,1208],[20,3216],[50,4496],[75,6096]],
+  cuLineOver100:     [[0,1692],[5,1812],[10,1812],[20,4824],[50,6744],[75,9144]],
+  cuRollUnder100:    [[0,564], [5,604], [10,604], [20,1608],[50,2248],[75,3048]],
+  cuRollOver100:     [[0,846], [5,906], [10,906], [20,2412],[50,3372],[75,4572]],
+  oaDamper:          [[0,180],[5,225],[10,260],[20,400],[50,800],[75,1600]],
+  ductTransitions:   [[0,200],[5,200],[10,300],[20,400],[50,800],[75,1600]],
+  floatSwitch:       16,   // flat rate
+  pvcCond:           129,  // flat rate
+  cuCond:            265,  // flat rate
+  thermostat:        160,  // flat rate
+  statWire:          45,   // flat rate per unit
+  smokeDetector:     170,  // flat rate
+  sensors:           125,  // flat rate per sensor
+};
+
+// Split labor hours by tons
+export const SPLIT_LABOR_HOURS = {
+  baseUnit:        [[0,24],[5,24],[10,32],[20,40],[50,60],[75,120]],
+  condenserRails:  [[0,6], [5,6], [10,8], [20,16],[50,30],[75,60]],
+  drainPan:        [[0,4], [5,4], [10,5], [20,6], [50,9], [75,14]],
+  cuLineUnder100:  [[0,24],[5,24],[10,30],[20,42],[50,60],[75,120]],
+  cuLineOver100:   [[0,36],[5,36],[10,45],[20,63],[50,90],[75,180]],
+  cuRollUnder100:  [[0,8], [5,8], [10,10],[20,14],[50,20],[75,40]],
+  cuRollOver100:   [[0,12],[5,12],[10,15],[20,21],[50,30],[75,60]],
+  oaDamper:        [[0,6], [5,6], [10,6], [20,8], [50,12],[75,16]],
+  floatSwitch:     [[0,1], [5,1], [10,1], [20,1], [50,1], [75,1]],
+  pvcCond:         [[0,5], [5,5], [10,5], [20,6], [50,7], [75,9]],
+  cuCond:          [[0,14],[5,14],[10,14],[20,16],[50,20],[75,24]],
+  thermostat:      [[0,2], [5,2], [10,2], [20,2], [50,3], [75,4]],
+  smokeDetector:   [[0,3], [5,3], [10,3], [20,3], [50,4], [75,4]],
+  sensors:         [[0,2], [5,2], [10,2], [20,2], [50,2], [75,2]],
+  statWire:        [[0,3], [5,3], [10,3], [20,3], [50,3], [75,3]],
+  startUp:         [[0,6], [5,6], [10,6], [20,7], [50,9], [75,14]],
+  ductTransitions: [[0,4], [5,4], [10,6], [20,8], [50,12],[75,16]],
+};
+
+// ─── WALL MOUNT SPLIT — Accessory Pricing Tables ─────────────────────────────
+// Source: Unit Sched rows 115-140, cols AP-BV
+//
+// API_TODO: GET /api/pricing/wall-mount-accessories
+
+export const WALL_MOUNT_ACCESSORY_TABLES = {
+  condenserRails: [[0,350],[5,350],[10,380],[20,450],[50,1200],[75,4000]],
+  condPump:       [[0,150],[5,150],[10,180],[20,250],[50,600], [75,1200]],
+  cuUnder100:     [[0,450],[5,450],[10,600],[20,900],[50,2000],[75,4500]],
+  cuOver100:      [[0,600],[5,600],[10,800],[20,1300],[50,3000],[75,6000]],
+  pvcCond:        86,   // flat rate
+  cuCond:         265,  // flat rate
+  thermostat:     160,  // flat rate
+  statWire:       45,   // flat rate per unit
+};
+
+export const WALL_MOUNT_LABOR_HOURS = {
+  baseUnit:       [[0,16],[5,16],[10,20],[20,28],[50,48],[75,96]],
+  condenserRails: [[0,4], [5,4], [10,6], [20,10],[50,20],[75,40]],
+  condPump:       [[0,3], [5,3], [10,4], [20,6], [50,12],[75,20]],
+  cuUnder100:     [[0,8], [5,8], [10,12],[20,18],[50,30],[75,60]],
+  cuOver100:      [[0,12],[5,12],[10,18],[20,27],[50,45],[75,90]],
+  pvcCond:        [[0,3], [5,3], [10,3], [20,4], [50,5], [75,7]],
+  cuCond:         [[0,8], [5,8], [10,10],[20,12],[50,16],[75,20]],
+  thermostat:     [[0,1], [5,1], [10,1], [20,1], [50,2], [75,3]],
+  statWire:       [[0,2], [5,2], [10,2], [20,2], [50,2], [75,2]],
+  startUp:        [[0,3], [5,3], [10,4], [20,5], [50,8], [75,14]],
+};
+
+// ─── VRF SYSTEM — Accessory Pricing Tables ────────────────────────────────────
+// Source: Unit Sched rows 143-169, cols AW-CB
+//
+// API_TODO: GET /api/pricing/vrf-accessories
+
+export const VRF_ACCESSORY_TABLES = {
+  condenserRails: [[0,400],[5,400],[10,500],[20,700],[50,1500],[75,5000]],
+  drainPan:       [[0,100],[5,100],[10,130],[20,200],[50,700], [75,1600]],
+  // CU line cost per foot: base rate × avg_length × indoor_units
+  cuLineRatePerFt:[[0,18],[5,18],[10,20],[20,25],[50,35],[75,45]],
+  // Refrigerant supplemental: per-unit charge based on avg tons
+  refrigChargePerTon: 45,
+  pvcCond:        86,
+  cuCond:         265,
+  thermostat:     160,
+  smokeDetector:  170,
+  sensors:        125,
+  statWire:       45,
+};
+
+export const VRF_LABOR_HOURS = {
+  baseUnit:      [[0,6],[5,6],[10,8],[20,10],[50,18],[75,36]],  // per indoor unit
+  condenserUnit: [[0,8],[5,8],[10,10],[20,14],[50,24],[75,48]], // per outdoor CU
+  condenserRails:[[0,5],[5,5],[10,7],[20,10],[50,20],[75,40]],
+  drainPan:      [[0,3],[5,3],[10,4],[20,5],[50,8],[75,14]],
+  cuLine:        [[0,10],[5,10],[10,12],[20,16],[50,24],[75,40]], // total for run
+  pvcCond:       [[0,3],[5,3],[10,3],[20,4],[50,5],[75,7]],
+  cuCond:        [[0,8],[5,8],[10,10],[20,12],[50,16],[75,20]],
+  thermostat:    [[0,1],[5,1],[10,1],[20,1],[50,2],[75,3]],
+  smokeDetector: [[0,2],[5,2],[10,2],[20,2],[50,3],[75,3]],
+  sensors:       [[0,2],[5,2],[10,2],[20,2],[50,2],[75,2]],
+  statWire:      [[0,3],[5,3],[10,3],[20,3],[50,3],[75,3]],
+  startUp:       [[0,5],[5,5],[10,6],[20,8],[50,14],[75,28]],
+};
+
+// ─── INTERPOLATION HELPERS ────────────────────────────────────────────────────
+// Mirrors the Excel INDEX/MATCH with interpolation between lookup breakpoints
+// This is the web equivalent of: =INDEX(table, MATCH(tons, sizes, 1))
+
+/**
+ * Look up a value from a [tons, value] table using interpolation.
+ * Matches Excel's MATCH with match_type=1 (finds largest value <= lookup_value).
+ */
+export function lookupByTons(table, tons) {
+  if (!Array.isArray(table)) return table; // flat rate — return as-is
+  const t = Number(tons) || 0;
+  const sorted = [...table].sort((a, b) => a[0] - b[0]);
+  if (t <= sorted[0][0]) return sorted[0][1];
+  if (t >= sorted[sorted.length - 1][0]) return sorted[sorted.length - 1][1];
+
+  // Interpolate between two bracketing rows
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const [t0, v0] = sorted[i];
+    const [t1, v1] = sorted[i + 1];
+    if (t >= t0 && t <= t1) {
+      const ratio = (t - t0) / (t1 - t0);
+      return v0 + (v1 - v0) * ratio;
+    }
+  }
+  return sorted[sorted.length - 1][1];
+}
+
+function round2(n) { return Math.round(n * 100) / 100; }
+function round0(n) { return Math.round(n); }
+
+// ─── SELECTION LOGIC ("x/xx") ─────────────────────────────────────────────────
+// "x"  = We supply & install
+// "xx" = Owner/GC provides, we install only (labor only, no material cost)
+// ""   = Not included
+
+/**
+ * @returns {{ material: number, labor: number, hours: number }}
+ */
+function accessoryCost(selection, matCost, laborHours, flatLaborFlag = false) {
+  if (!selection || selection === '') return { material: 0, labor: 0, hours: 0 };
+  const hrs   = Number(laborHours) || 0;
+  const mat   = selection === 'xx' ? 0 : (Number(matCost) || 0);
+  const labor = round2(hrs * TECH_RATE);
+  return { material: round2(mat), labor, hours: round2(hrs) };
+}
+
+// ─── SERVICE OF EXISTING UNIT CALCULATION ────────────────────────────────────
+// Source: Unit Sched rows 18-43
+// Formula: material = INDEX(materialTable, MATCH(tons, sizeCol, 1))
+//           labor   = INDEX(laborTable,    MATCH(tons, sizeCol, 1))
+//
+// API_TODO: POST /api/estimates/service-units (persist & recalculate server-side)
+
+export function calcServiceUnit(unit) {
+  const { systemType = '', coolTons = 0, pmMaterials = 0, pmLabor = 0 } = unit;
+  const typeKey = SYSTEM_TYPE_KEY_MAP[systemType] || 'packaged';
+
+  const matRow = SERVICE_PRICING_TABLE;
+  const tonNum = Number(coolTons) || 0;
+
+  // MATCH lookup (largest breakpoint <= tons)
+  let matCost  = 0;
+  let laborCost = 0;
+  for (let i = matRow.length - 1; i >= 0; i--) {
+    if (tonNum >= matRow[i].tons) {
+      matCost   = matRow[i].material[typeKey] || 0;
+      laborCost = matRow[i].labor[typeKey]    || 0;
+      break;
+    }
+  }
+
+  const totalMaterial = round2(matCost + Number(pmMaterials));
+  const totalLabor    = round2(laborCost + Number(pmLabor));
+
+  return {
+    ...unit,
+    serviceMaterialCost: round2(matCost),
+    serviceLaborCost:    round2(laborCost),
+    pmMaterials:         round2(Number(pmMaterials)),
+    pmLabor:             round2(Number(pmLabor)),
+    totalMaterial,
+    totalLabor,
+    totalCost: round2(totalMaterial + totalLabor),
+  };
+}
+
+// ─── NEW PACKAGED UNIT CALCULATION ───────────────────────────────────────────
+// Source: Unit Sched rows 56-82 (header row 56, data rows 57-81)
+//
+// Logic:
+//   equipCost   = ownerProvided='xx' ? 0 : (quotedCost || baseCostPerTon × tons)
+//   accessories = SUM of selected items × lookup-by-tons
+//   misc        = accessories × MISC_CONSUMABLES_PCT
+//   labor       = SUM of selected items × labor_hours × TECH_RATE
+//
+// API_TODO: POST /api/estimates/packaged-units
+
+export function calcPackagedUnit(unit) {
+  const {
+    coolTons = 0,
+    ownerProvided = '',
+    baseCostPerTon = 0,
+    quotedEquipCost = null,
+    accessories = {},
+  } = unit;
+
+  const tons = Number(coolTons) || 0;
+
+  // Equipment cost
+  const estEquipCost = round0(tons * Number(baseCostPerTon));
+  const equipCost = ownerProvided === 'xx' ? 0 : (quotedEquipCost != null ? Number(quotedEquipCost) : estEquipCost);
+
+  let accMaterial = 0;
+  let accLabor    = 0;
+  let accHours    = 0;
+
+  // Helper to add an accessory
+  const addAcc = (sel, matTable, hoursTable) => {
+    if (!sel || sel === '') return;
+    const mat   = Array.isArray(matTable) ? lookupByTons(matTable, tons) : (Number(matTable) || 0);
+    const hrs   = Array.isArray(hoursTable) ? lookupByTons(hoursTable, tons) : (Number(hoursTable) || 0);
+    const matVal = sel === 'xx' ? 0 : round2(mat);
+    accMaterial += matVal;
+    accLabor    += round2(hrs * TECH_RATE);
+    accHours    += round2(hrs);
+  };
+
+  const T = PKG_ACCESSORY_TABLES;
+  const L = PKG_LABOR_HOURS;
+
+  // Standard Curb
+  addAcc(accessories.standardCurb,  T.standardCurb,  L.standardCurb);
+  // Metal Roof Curb
+  addAcc(accessories.metalRoofCurb, T.metalRoofCurb, L.metalRoofCurb);
+  // Curb Adapter
+  addAcc(accessories.curbAdapter,   T.curbAdapter,   L.curbAdapter);
+  // Economizer
+  addAcc(accessories.economizer,    T.economizer,    L.economizer);
+  // PVC Condensate
+  addAcc(accessories.pvcCond,       T.pvcCond,       L.pvcCond);
+  // CU Condensate
+  addAcc(accessories.cuCond,        T.cuCond,        L.cuCond);
+  // Thermostat
+  addAcc(accessories.thermostat,    T.thermostat,    L.thermostat);
+  // Smoke Detectors (qty-based)
+  if (accessories.smokeDetectors && accessories.smokeDetectors !== '') {
+    const qty = accessories.smokeDetectors === 'xx' ? 0 : Number(accessories.smokeDetectors) || 1;
+    const mat = accessories.smokeDetectors === 'xx' ? 0 : round2(T.smokeDetector * qty);
+    const hrs = round2(lookupByTons(L.smokeDetector, tons) * (Number(accessories.smokeDetectors) || 1));
+    if (accessories.smokeDetectors !== '') {
+      accMaterial += mat;
+      accLabor    += round2(hrs * TECH_RATE);
+      accHours    += hrs;
+    }
+  }
+  // Sensors (CO/Temp) — qty field
+  if (accessories.sensorQty && Number(accessories.sensorQty) > 0) {
+    const qty = Number(accessories.sensorQty);
+    accMaterial += round2(T.sensors * qty);
+    accLabor    += round2(lookupByTons(L.sensors, tons) * qty * TECH_RATE);
+    accHours    += round2(lookupByTons(L.sensors, tons) * qty);
+  }
+  // New Drops
+  addAcc(accessories.newDrops,  T.newDrops,  L.newDrops);
+  // Drum Louvers
+  addAcc(accessories.drumLouvers, T.drumLouvers, L.drumLouvers);
+
+  // Base install labor (always included)
+  const baseHours  = lookupByTons(L.baseUnit, tons);
+  const baseLabor  = round2(baseHours * TECH_RATE);
+  const startHours = lookupByTons(L.startUp, tons);
+  const startLabor = round2(startHours * TECH_RATE);
+
+  accLabor  += baseLabor + startLabor;
+  accHours  += baseHours + startHours;
+
+  // Stat wire (per-unit flat rate)
+  if (accessories.thermostat && accessories.thermostat !== '') {
+    const statMat = accessories.thermostat === 'xx' ? 0 : T.statWire;
+    const statHrs = lookupByTons(L.statWire, tons);
+    accMaterial += statMat;
+    accLabor    += round2(statHrs * TECH_RATE);
+    accHours    += statHrs;
+  }
+
+  const misc         = round2(accMaterial * MISC_CONSUMABLES_PCT);
+  const totalMat     = round2(equipCost + accMaterial + misc);
+  const totalLabor   = round2(accLabor);
+  const totalCost    = round2(totalMat + totalLabor);
+
+  return {
+    ...unit,
+    estEquipCost,
+    equipCost,
+    accMaterial:  round2(accMaterial),
+    miscCost:     misc,
+    totalMaterial: totalMat,
+    totalLabor,
+    totalHours: round2(accHours),
+    totalCost,
+  };
+}
+
+// ─── SPLIT SYSTEM CALCULATION ────────────────────────────────────────────────
+// Source: Unit Sched rows 84-111
+//
+// API_TODO: POST /api/estimates/split-units
+
+export function calcSplitUnit(unit) {
+  const {
+    coolTons = 0,
+    ownerProvided = '',
+    baseCostPerTon = 0,
+    quotedEquipCost = null,
+    accessories = {},
+  } = unit;
+
+  const tons = Number(coolTons) || 0;
+  const estEquipCost = round0(tons * Number(baseCostPerTon));
+  const equipCost = ownerProvided === 'xx' ? 0 : (quotedEquipCost != null ? Number(quotedEquipCost) : estEquipCost);
+
+  let accMaterial = 0;
+  let accLabor    = 0;
+  let accHours    = 0;
+
+  const addAcc = (sel, matTable, hoursTable) => {
+    if (!sel || sel === '') return;
+    const mat = Array.isArray(matTable) ? lookupByTons(matTable, tons) : (Number(matTable) || 0);
+    const hrs = Array.isArray(hoursTable) ? lookupByTons(hoursTable, tons) : (Number(hoursTable) || 0);
+    accMaterial += sel === 'xx' ? 0 : round2(mat);
+    accLabor    += round2(hrs * TECH_RATE);
+    accHours    += round2(hrs);
+  };
+
+  const T = SPLIT_ACCESSORY_TABLES;
+  const L = SPLIT_LABOR_HOURS;
+
+  addAcc(accessories.condenserRails,  T.condenserRails,  L.condenserRails);
+  addAcc(accessories.drainPan,        T.drainPan,        L.drainPan);
+  addAcc(accessories.cuLineUnder100,  T.cuLineUnder100,  L.cuLineUnder100);
+  addAcc(accessories.cuLineOver100,   T.cuLineOver100,   L.cuLineOver100);
+  addAcc(accessories.cuRollUnder100,  T.cuRollUnder100,  L.cuRollUnder100);
+  addAcc(accessories.cuRollOver100,   T.cuRollOver100,   L.cuRollOver100);
+  addAcc(accessories.oaDamper,        T.oaDamper,        L.oaDamper);
+  addAcc(accessories.floatSwitch,     T.floatSwitch,     L.floatSwitch);
+  addAcc(accessories.pvcCond,         T.pvcCond,         L.pvcCond);
+  addAcc(accessories.cuCond,          T.cuCond,          L.cuCond);
+  addAcc(accessories.thermostat,      T.thermostat,      L.thermostat);
+  addAcc(accessories.ductTransitions, T.ductTransitions, L.ductTransitions);
+
+  if (accessories.smokeDetectors && accessories.smokeDetectors !== '') {
+    const mat = accessories.smokeDetectors === 'xx' ? 0 : T.smokeDetector;
+    const hrs = lookupByTons(L.smokeDetector, tons);
+    accMaterial += mat;
+    accLabor    += round2(hrs * TECH_RATE);
+    accHours    += hrs;
+  }
+  if (accessories.sensorQty && Number(accessories.sensorQty) > 0) {
+    const qty = Number(accessories.sensorQty);
+    accMaterial += round2(T.sensors * qty);
+    accLabor    += round2(lookupByTons(L.sensors, tons) * qty * TECH_RATE);
+    accHours    += round2(lookupByTons(L.sensors, tons) * qty);
+  }
+  if (accessories.thermostat && accessories.thermostat !== '') {
+    const statMat = accessories.thermostat === 'xx' ? 0 : T.statWire;
+    const statHrs = lookupByTons(L.statWire, tons);
+    accMaterial += statMat;
+    accLabor    += round2(statHrs * TECH_RATE);
+    accHours    += statHrs;
+  }
+
+  const baseHours  = lookupByTons(L.baseUnit, tons);
+  const startHours = lookupByTons(L.startUp, tons);
+  accLabor  += round2((baseHours + startHours) * TECH_RATE);
+  accHours  += baseHours + startHours;
+
+  const misc        = round2(accMaterial * MISC_CONSUMABLES_PCT);
+  const totalMat    = round2(equipCost + accMaterial + misc);
+  const totalLabor  = round2(accLabor);
+
+  return {
+    ...unit,
+    estEquipCost,
+    equipCost,
+    accMaterial:   round2(accMaterial),
+    miscCost:      misc,
+    totalMaterial: totalMat,
+    totalLabor,
+    totalHours: round2(accHours),
+    totalCost:  round2(totalMat + totalLabor),
+  };
+}
+
+// ─── WALL MOUNT SPLIT CALCULATION ────────────────────────────────────────────
+// Source: Unit Sched rows 113-140
+//
+// API_TODO: POST /api/estimates/wall-mount-units
+
+export function calcWallMountUnit(unit) {
+  const {
+    coolTons = 0,
+    ownerProvided = '',
+    baseCostPerTon = 0,
+    quotedEquipCost = null,
+    accessories = {},
+  } = unit;
+
+  const tons = Number(coolTons) || 0;
+  const estEquipCost = round0(tons * Number(baseCostPerTon));
+  const equipCost = ownerProvided === 'xx' ? 0 : (quotedEquipCost != null ? Number(quotedEquipCost) : estEquipCost);
+
+  let accMaterial = 0;
+  let accLabor    = 0;
+  let accHours    = 0;
+
+  const addAcc = (sel, matTable, hoursTable) => {
+    if (!sel || sel === '') return;
+    const mat = Array.isArray(matTable) ? lookupByTons(matTable, tons) : (Number(matTable) || 0);
+    const hrs = Array.isArray(hoursTable) ? lookupByTons(hoursTable, tons) : (Number(hoursTable) || 0);
+    accMaterial += sel === 'xx' ? 0 : round2(mat);
+    accLabor    += round2(hrs * TECH_RATE);
+    accHours    += round2(hrs);
+  };
+
+  const T = WALL_MOUNT_ACCESSORY_TABLES;
+  const L = WALL_MOUNT_LABOR_HOURS;
+
+  addAcc(accessories.condenserRails, T.condenserRails, L.condenserRails);
+  addAcc(accessories.condPump,       T.condPump,       L.condPump);
+  addAcc(accessories.cuUnder100,     T.cuUnder100,     L.cuUnder100);
+  addAcc(accessories.cuOver100,      T.cuOver100,      L.cuOver100);
+  addAcc(accessories.pvcCond,        T.pvcCond,        L.pvcCond);
+  addAcc(accessories.cuCond,         T.cuCond,         L.cuCond);
+  addAcc(accessories.thermostat,     T.thermostat,     L.thermostat);
+
+  if (accessories.thermostat && accessories.thermostat !== '') {
+    const statMat = accessories.thermostat === 'xx' ? 0 : T.statWire;
+    const statHrs = lookupByTons(L.statWire, tons);
+    accMaterial += statMat;
+    accLabor    += round2(statHrs * TECH_RATE);
+    accHours    += statHrs;
+  }
+
+  const baseHours  = lookupByTons(L.baseUnit, tons);
+  const startHours = lookupByTons(L.startUp, tons);
+  accLabor  += round2((baseHours + startHours) * TECH_RATE);
+  accHours  += baseHours + startHours;
+
+  const misc       = round2(accMaterial * MISC_CONSUMABLES_PCT);
+  const totalMat   = round2(equipCost + accMaterial + misc);
+  const totalLabor = round2(accLabor);
+
+  return {
+    ...unit,
+    estEquipCost,
+    equipCost,
+    accMaterial:   round2(accMaterial),
+    miscCost:      misc,
+    totalMaterial: totalMat,
+    totalLabor,
+    totalHours: round2(accHours),
+    totalCost:  round2(totalMat + totalLabor),
+  };
+}
+
+// ─── VRF SYSTEM CALCULATION ──────────────────────────────────────────────────
+// Source: Unit Sched rows 142-169
+// VRF-specific: multiple condensing units, multiple indoor units, CU line length
+//
+// API_TODO: POST /api/estimates/vrf-units
+
+export function calcVRFUnit(unit) {
+  const {
+    coolTons = 0,
+    condensingUnits = 1,
+    indoorUnits = 1,
+    indoorCoolAvgTons = 0,
+    ownerProvided = '',
+    baseCostPerTon = 0,
+    quotedEquipCost = null,
+    cuLineAvgLength = 0,
+    accessories = {},
+  } = unit;
+
+  const tons = Number(coolTons) || 0;
+  const indoorAvg = Number(indoorCoolAvgTons) || (tons / Math.max(1, Number(indoorUnits)));
+  const estEquipCost = round0(tons * Number(baseCostPerTon));
+  const equipCost = ownerProvided === 'xx' ? 0 : (quotedEquipCost != null ? Number(quotedEquipCost) : estEquipCost);
+
+  let accMaterial = 0;
+  let accLabor    = 0;
+  let accHours    = 0;
+
+  const addAcc = (sel, matTable, hoursTable) => {
+    if (!sel || sel === '') return;
+    const mat = Array.isArray(matTable) ? lookupByTons(matTable, tons) : (Number(matTable) || 0);
+    const hrs = Array.isArray(hoursTable) ? lookupByTons(hoursTable, tons) : (Number(hoursTable) || 0);
+    accMaterial += sel === 'xx' ? 0 : round2(mat);
+    accLabor    += round2(hrs * TECH_RATE);
+    accHours    += round2(hrs);
+  };
+
+  const T = VRF_ACCESSORY_TABLES;
+  const L = VRF_LABOR_HOURS;
+
+  addAcc(accessories.condenserRails, T.condenserRails, L.condenserRails);
+  addAcc(accessories.drainPan,       T.drainPan,       L.drainPan);
+  addAcc(accessories.pvcCond,        T.pvcCond,        L.pvcCond);
+  addAcc(accessories.cuCond,         T.cuCond,         L.cuCond);
+  addAcc(accessories.thermostat,     T.thermostat,     L.thermostat);
+  addAcc(accessories.smokeDetectors, T.smokeDetector,  L.smokeDetector);
+
+  // CU line cost: per-ft rate × avg length × indoor units
+  if (accessories.cuLine && accessories.cuLine !== '' && Number(cuLineAvgLength) > 0) {
+    const ratePerFt = lookupByTons(T.cuLineRatePerFt, indoorAvg);
+    const lineMat   = accessories.cuLine === 'xx' ? 0 : round2(ratePerFt * Number(cuLineAvgLength) * Number(indoorUnits));
+    const lineHrs   = round2(lookupByTons(L.cuLine, tons));
+    accMaterial += lineMat;
+    accLabor    += round2(lineHrs * TECH_RATE);
+    accHours    += lineHrs;
+  }
+
+  // Refrigerant supplemental
+  if (accessories.refrigCharge && accessories.refrigCharge !== '') {
+    const refMat = accessories.refrigCharge === 'xx' ? 0 : round2(T.refrigChargePerTon * indoorAvg * Number(indoorUnits));
+    accMaterial += refMat;
+  }
+
+  if (accessories.sensorQty && Number(accessories.sensorQty) > 0) {
+    const qty = Number(accessories.sensorQty);
+    accMaterial += round2(T.sensors * qty);
+    accLabor    += round2(lookupByTons(L.sensors, tons) * qty * TECH_RATE);
+    accHours    += round2(lookupByTons(L.sensors, tons) * qty);
+  }
+  if (accessories.thermostat && accessories.thermostat !== '') {
+    const statMat = accessories.thermostat === 'xx' ? 0 : T.statWire;
+    const statHrs = lookupByTons(L.statWire, tons);
+    accMaterial += statMat;
+    accLabor    += round2(statHrs * TECH_RATE);
+    accHours    += statHrs;
+  }
+
+  // Base labor per indoor + per outdoor CU
+  const indHrs  = round2(lookupByTons(L.baseUnit, indoorAvg)   * Number(indoorUnits));
+  const cuHrs   = round2(lookupByTons(L.condenserUnit, tons)   * Number(condensingUnits));
+  const startHrs = lookupByTons(L.startUp, tons);
+  accLabor  += round2((indHrs + cuHrs + startHrs) * TECH_RATE);
+  accHours  += indHrs + cuHrs + startHrs;
+
+  const misc       = round2(accMaterial * MISC_CONSUMABLES_PCT);
+  const totalMat   = round2(equipCost + accMaterial + misc);
+  const totalLabor = round2(accLabor);
+
+  return {
+    ...unit,
+    estEquipCost,
+    equipCost,
+    accMaterial:   round2(accMaterial),
+    miscCost:      misc,
+    totalMaterial: totalMat,
+    totalLabor,
+    totalHours: round2(accHours),
+    totalCost:  round2(totalMat + totalLabor),
+  };
+}
+
+// ─── BATCH CALCULATORS ────────────────────────────────────────────────────────
+
+function batchCalc(rows, calcFn) {
+  const results = rows.map((r, i) => ({ id: r.id || `row-${i}`, ...calcFn(r) }));
+  const totals = results.reduce(
+    (acc, r) => ({
+      coolTons:      acc.coolTons      + (Number(r.coolTons) || 0),
+      totalMaterial: acc.totalMaterial + (r.totalMaterial || 0),
+      totalLabor:    acc.totalLabor    + (r.totalLabor    || 0),
+      totalHours:    acc.totalHours    + (r.totalHours    || 0),
+      totalCost:     acc.totalCost     + (r.totalCost     || 0),
+    }),
+    { coolTons: 0, totalMaterial: 0, totalLabor: 0, totalHours: 0, totalCost: 0 }
+  );
+  Object.keys(totals).forEach(k => { totals[k] = round2(totals[k]); });
+  return { rows: results, totals };
+}
+
+export const calcServiceBatch    = (rows) => batchCalc(rows, calcServiceUnit);
+export const calcPackagedBatch   = (rows) => batchCalc(rows, calcPackagedUnit);
+export const calcSplitBatch      = (rows) => batchCalc(rows, calcSplitUnit);
+export const calcWallMountBatch  = (rows) => batchCalc(rows, calcWallMountUnit);
+export const calcVRFBatch        = (rows) => batchCalc(rows, calcVRFUnit);
+
+// ─── GRAND SUMMARY ROLL-UP ────────────────────────────────────────────────────
+// Source: Unit Sched rows 2-11 (Unit Summary section)
+// Mirrors Summary sheet roll-up logic
+//
+// API_TODO: GET /api/estimates/{projectId}/unit-schedule/summary
+
+export function rollUpUnitSummary({ serviceTotals, packagedTotals, splitTotals, wallMountTotals, vrfTotals }) {
+  const sections = [
+    { type: SYSTEM_TYPES.PACKAGED,   ...packagedTotals  },
+    { type: SYSTEM_TYPES.SPLIT,      ...splitTotals     },
+    { type: SYSTEM_TYPES.WALL_MOUNT, ...wallMountTotals },
+    { type: SYSTEM_TYPES.VRF,        ...vrfTotals       },
+    { type: 'Service of Existing',   ...serviceTotals   },
+  ];
+
+  const grand = sections.reduce(
+    (acc, s) => ({
+      totalMaterial: acc.totalMaterial + (s.totalMaterial || 0),
+      totalLabor:    acc.totalLabor    + (s.totalLabor    || 0),
+      totalCost:     acc.totalCost     + (s.totalCost     || 0),
+    }),
+    { totalMaterial: 0, totalLabor: 0, totalCost: 0 }
+  );
+
+  return { sections, grand: { totalMaterial: round2(grand.totalMaterial), totalLabor: round2(grand.totalLabor), totalCost: round2(grand.totalCost) } };
+}

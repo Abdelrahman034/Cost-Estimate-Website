@@ -51,4 +51,22 @@ export const proposalsApi = {
   send:     (estimateData, projectInfo, clientEmail, clientName) => api.post('/proposals/send', { estimateData, projectInfo, clientEmail, clientName }),
 };
 
+// ─── SUPPLIERS & RFQs ─────────────────────────────────────────────────────────
+export const suppliersApi = {
+  getAll:   ()          => api.get('/suppliers'),
+  create:   (data)      => api.post('/suppliers', data),
+  update:   (id, data)  => api.put(`/suppliers/${id}`, data),
+  delete:   (id)        => api.delete(`/suppliers/${id}`),
+};
+
+export const rfqApi = {
+  getAll:   (projectId) => api.get(`/suppliers/rfqs${projectId ? `?projectId=${projectId}` : ''}`),
+  create:   (data)      => api.post('/suppliers/rfqs', data),
+  update:   (id, data)  => api.put(`/suppliers/rfqs/${id}`, data),
+  delete:   (id)        => api.delete(`/suppliers/rfqs/${id}`),
+
+  getQuotes:   (rfqId)           => api.get(`/suppliers/rfqs/${rfqId}/quotes`),
+  upsertQuote: (rfqId, supId, d) => api.put(`/suppliers/rfqs/${rfqId}/quotes/${supId}`, d),
+};
+
 export default api;

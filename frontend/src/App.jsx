@@ -9,7 +9,10 @@ import {
   DrawingAnalyzer,
   PriceMonitor,
   ProposalGenerator,
-  SummaryModule
+  SummaryModule,
+  UnitScheduleModule,
+  SupplierRFQModule,
+  ScenarioModule,
 } from '@modules';
 import SettingsPage from '@pages/SettingsPage';
 import { SettingsProvider } from '@contexts/SettingsContext';
@@ -48,6 +51,9 @@ export default function App() {
               <Route path={ROUTE_PATHS.DASHBOARD} element={<Dashboard projectInfo={projectInfo} />} />
               <Route path={ROUTE_PATHS.DUCT} element={<MetalDuctModule projectInfo={projectInfo} />} />
               <Route path={ROUTE_PATHS.DIFFUSER} element={<DiffuserModule />} />
+              <Route path={ROUTE_PATHS.UNIT_SCHEDULE} element={<UnitScheduleModule projectInfo={projectInfo} />} />
+              <Route path={ROUTE_PATHS.SUPPLIER_RFQ} element={<SupplierRFQModule projectInfo={projectInfo} />} />
+              <Route path={ROUTE_PATHS.SCENARIOS}    element={<ScenarioModule projectInfo={projectInfo} />} />
               <Route path={ROUTE_PATHS.DRAWINGS} element={<DrawingAnalyzer projectInfo={projectInfo} />} />
               <Route path={ROUTE_PATHS.PRICES} element={<PriceMonitor />} />
               <Route path={ROUTE_PATHS.PROPOSAL} element={<ProposalGenerator projectInfo={projectInfo} />} />
