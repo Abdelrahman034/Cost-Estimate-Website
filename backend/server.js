@@ -3,18 +3,9 @@ const express = require('express');
 const cors    = require('cors');
 const path    = require('path');
 
-const { registerRoutes } = require('./routes');
-const prisma             = require('./prisma/client');
-const authRoutes         = require('./routes/auth');
-
-// Keep SQLite alive during migration (existing routes still use it)
-const { getDB } = require('./services');
-try {
-  getDB();
-  console.log('SQLite database ready (legacy — migrating to PostgreSQL)');
-} catch (err) {
-  console.error('SQLite init failed:', err.message);
-}
+const prisma          = require('./prisma/client');
+const authRoutes     = require('./features/auth/authRoutes');
+const projectsRoutes = require('./features/projects/projectsRoutes');
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
@@ -26,11 +17,9 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/outputs', express.static(path.join(__dirname, 'outputs')));
 
-// ── New Prisma-based routes ───────────────────────────────────────────────────
-app.use('/api/auth', authRoutes);
-
-// ── Legacy SQLite routes (kept during migration) ──────────────────────────────
-registerRoutes(app);
+// ── Routes ────────────────────────────────────────────────────────────────────
+app.use('/api/auth',     authRoutes);
+app.use('/api/projects', projectsRoutes);
 
 app.get('/api/health', async (req, res) => {
   let dbStatus = 'unknown';
@@ -58,5 +47,5 @@ app.listen(PORT, () => {
   console.log('\nHVAC Estimator Backend  ->  http://localhost:' + PORT);
   console.log('Health check            ->  http://localhost:' + PORT + '/api/health');
   console.log('AI provider             ->  Groq (free tier)');
-  console.log('Database               ->  PostgreSQL (Prisma) + SQLite (legacy)\n');
+  console.log('Database               ->  PostgreSQL (Prisma)\n');
 });

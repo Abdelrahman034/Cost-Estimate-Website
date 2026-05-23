@@ -5,6 +5,14 @@ const api = axios.create({
   timeout: 60000,
 });
 
+// Attach the JWT access token to every request automatically.
+// AuthContext writes it to sessionStorage on login/refresh.
+api.interceptors.request.use((config) => {
+  const token = sessionStorage.getItem('accessToken');
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
 // ─── PROJECTS (SQLite) ────────────────────────────────────────────────────────
 export const projectsApi = {
   getAll:  ()           => api.get('/projects'),
