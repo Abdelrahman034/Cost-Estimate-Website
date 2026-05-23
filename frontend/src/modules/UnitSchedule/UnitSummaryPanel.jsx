@@ -17,6 +17,8 @@ const SECTION_COLORS = {
   'Wall Mount Split':    'bg-orange-100 text-orange-800',
   'VRF':                 'bg-red-100 text-red-800',
   'Service of Existing': 'bg-blue-100 text-blue-800',
+  'Fans':                'bg-cyan-100 text-cyan-800',
+  'Louvers & Dampers':   'bg-teal-100 text-teal-800',
 };
 
 export default function UnitSummaryPanel({ summary }) {

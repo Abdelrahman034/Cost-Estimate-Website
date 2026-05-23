@@ -1,5 +1,6 @@
-import React, { useState, useCallback } from 'react';
-import { Plus, Trash2, Download, Settings2 } from 'lucide-react';
+import React, { useState, useCallback, useEffect } from 'react';
+import { Plus, Trash2, Download, Settings2, Play } from 'lucide-react';
+import { DEMO_DIFFUSER } from '@utils/demoData';
 import toast from 'react-hot-toast';
 import { calculateDiffuserBatch } from '@utils/diffuserCalculations';
 import DiffuserRow from './DiffuserRow';
@@ -47,6 +48,19 @@ export default function DiffuserModule() {
   const [results, setResults]         = useState(null);
   const [settings, setSettings]       = useState(DEFAULT_SETTINGS);
   const [showSettings, setShowSettings] = useState(false);
+
+  // Auto-load demo rows on mount when demo mode is active
+  useEffect(() => {
+    if (localStorage.getItem('demo_mode') === 'true') {
+      try {
+        const saved = localStorage.getItem('demo_diffuser');
+        if (saved) {
+          const { rows: demoRows } = JSON.parse(saved);
+          if (demoRows?.length) setRows(demoRows);
+        }
+      } catch (_) {}
+    }
+  }, []);
 
   // ── Calculate ───────────────────────────────────────────────────────────────
   const calculate = useCallback(() => {
@@ -138,6 +152,23 @@ export default function DiffuserModule() {
             <button onClick={exportCSV} className="btn-secondary flex items-center gap-2">
               <Download size={16} />
               Export CSV
+            </button>
+          )}
+          {localStorage.getItem('demo_mode') === 'true' && (
+            <button
+              onClick={() => {
+                try {
+                  const saved = localStorage.getItem('demo_diffuser');
+                  if (saved) {
+                    const { rows: demoRows } = JSON.parse(saved);
+                    setRows(demoRows); setResults(null);
+                    toast.success('Demo diffusers loaded!');
+                  }
+                } catch (_) { toast.error('Could not load demo data'); }
+              }}
+              className="btn-secondary flex items-center gap-2 text-blue-600 border-blue-200 bg-blue-50 hover:bg-blue-100"
+            >
+              <Play size={16} /> Load Demo
             </button>
           )}
           <button onClick={calculate} className="btn-primary flex items-center gap-2 px-6">

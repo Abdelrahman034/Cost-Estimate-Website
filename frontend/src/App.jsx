@@ -6,6 +6,7 @@ import Header from '@components/Layout/Header';
 import {
   MetalDuctModule,
   DiffuserModule,
+  FanScheduleModule,
   DrawingAnalyzer,
   PriceMonitor,
   ProposalGenerator,
@@ -13,10 +14,15 @@ import {
   UnitScheduleModule,
   SupplierRFQModule,
   ScenarioModule,
+  ChangeLogModule,
+  ProposalPdfModule,
+  ElectricHeatModule,
 } from '@modules';
 import SettingsPage from '@pages/SettingsPage';
 import { SettingsProvider } from '@contexts/SettingsContext';
 import Dashboard from '@pages/Dashboard';
+import AdminDashboard from '@pages/AdminDashboard';
+import DemoSetup from '@pages/DemoSetup';
 import { ROUTE_PATHS } from '@config/navigation';
 
 export default function App() {
@@ -52,13 +58,19 @@ export default function App() {
               <Route path={ROUTE_PATHS.DUCT} element={<MetalDuctModule projectInfo={projectInfo} />} />
               <Route path={ROUTE_PATHS.DIFFUSER} element={<DiffuserModule />} />
               <Route path={ROUTE_PATHS.UNIT_SCHEDULE} element={<UnitScheduleModule projectInfo={projectInfo} />} />
+              <Route path={ROUTE_PATHS.FAN_SCHEDULE} element={<FanScheduleModule />} />
+              <Route path={ROUTE_PATHS.ELEC_HEAT}    element={<ElectricHeatModule />} />
               <Route path={ROUTE_PATHS.SUPPLIER_RFQ} element={<SupplierRFQModule projectInfo={projectInfo} />} />
               <Route path={ROUTE_PATHS.SCENARIOS}    element={<ScenarioModule projectInfo={projectInfo} />} />
+              <Route path={ROUTE_PATHS.CHANGELOG}    element={<ChangeLogModule projectInfo={projectInfo} />} />
+              <Route path={ROUTE_PATHS.PROPOSAL_PDF} element={<ProposalPdfModule projectInfo={projectInfo} />} />
               <Route path={ROUTE_PATHS.DRAWINGS} element={<DrawingAnalyzer projectInfo={projectInfo} />} />
               <Route path={ROUTE_PATHS.PRICES} element={<PriceMonitor />} />
               <Route path={ROUTE_PATHS.PROPOSAL} element={<ProposalGenerator projectInfo={projectInfo} />} />
               <Route path={ROUTE_PATHS.SUMMARY} element={<SummaryModule projectInfo={projectInfo} />} />
-              <Route path={ROUTE_PATHS.SETTINGS} element={<SettingsPage />} />
+              <Route path={ROUTE_PATHS.SETTINGS}         element={<SettingsPage />} />
+              <Route path={ROUTE_PATHS.ADMIN_ANALYTICS}  element={<AdminDashboard />} />
+              <Route path={ROUTE_PATHS.DEMO_SETUP}       element={<DemoSetup onProjectInfoChange={setProjectInfo} />} />
               <Route path="*" element={<Navigate to={ROUTE_PATHS.DASHBOARD} replace />} />
             </Routes>
           </main>

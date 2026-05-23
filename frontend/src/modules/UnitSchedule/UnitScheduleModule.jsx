@@ -1,40 +1,76 @@
 /**
  * Unit Schedule Module
- * Implements the "Unit Sched" Excel tab as a full React module.
+ * Implements the "Unit Sched", "Fan Schedule", and "Louvers & FD" Excel tabs.
  *
- * Architecture for future backend integration:
- *   - All state shapes mirror the DB entity models
- *   - API_TODO comments show exactly where to swap in API calls
- *   - Calculation engine is pure-function (easy to move to server-side)
- *   - projectId prop is ready to be wired once projects API exists
+ * Productivity features:
+ *   • Auto-naming        — next sequential tag pre-filled on Add
+ *   • Bulk Add           — x N control adds N sequentially-named rows at once
+ *   • Duplicate          — deep-clone a row, inserted directly below original
+ *   • Expand/Collapse All — per-section buttons open/close all accessory panels
+ *   • Row Templates      — save any row as a named template, re-insert in one click
+ *   • CSV Import         — paste or upload CSV to bulk-populate any section
+ *   • Live Dashboard     — totals written to localStorage for the project dashboard
+ *   • Copy From Project  — clone a section from a previously saved project snapshot
  */
-import React, { useState, useCallback, useMemo } from 'react';
-import { Plus, Trash2, Download, Calculator, ChevronDown, ChevronRight, Copy, Info } from 'lucide-react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import { Plus, Download, ChevronDown, ChevronUp, Info, Upload, Copy as CopyIcon, Play, Settings2, Tag } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { DEMO_UNIT_SCHEDULE } from '@utils/demoData';
 import {
   calcServiceBatch,
   calcPackagedBatch,
   calcSplitBatch,
   calcWallMountBatch,
   calcVRFBatch,
+  calcFanBatch,
+  calcLouverDamperBatch,
   rollUpUnitSummary,
   SYSTEM_TYPES,
+  FAN_TYPES,
+  LOUVER_DAMPER_TYPES,
+  TECH_RATE,
+  SPLIT_TECH_RATE,
+  WALL_MOUNT_TECH_RATE,
+  VRF_TECH_RATE,
 } from '@utils/unitScheduleCalculations';
-import ServiceRow        from './ServiceRow';
-import PackagedRow       from './PackagedRow';
-import SplitRow          from './SplitRow';
-import WallMountRow      from './WallMountRow';
-import VRFRow            from './VRFRow';
-import UnitSummaryPanel  from './UnitSummaryPanel';
+import { saveModuleTotals } from '@utils/projectTotals';
+import { SectionExpandContext } from './shared';
+import { TemplatesPanel } from './TemplatesModal';
+import CsvImportModal from './CsvImportModal';
+import AccessoryPriceSettings from './AccessoryPriceSettings';
+import ServiceRow       from './ServiceRow';
+import PackagedRow      from './PackagedRow';
+import SplitRow         from './SplitRow';
+import WallMountRow     from './WallMountRow';
+import VRFRow           from './VRFRow';
+import FanRow           from './FanRow';
+import LouverDamperRow  from './LouverDamperRow';
+import UnitSummaryPanel from './UnitSummaryPanel';
 
-// ─── DEFAULT ROW FACTORIES ────────────────────────────────────────────────────
-// These shapes map directly to the database entity columns
+// Auto-naming: scans last row, increments trailing number
+// EF-2 -> EF-3  |  RTU-09 -> RTU-10  |  L5 -> L6
+function autoNextName(rows) {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const name = rows[i]?.name?.trim();
+    if (!name) continue;
+    const m = name.match(/^(.*?)(\d+)(\s*)$/);
+    if (m) {
+      const prefix   = m[1];
+      const num      = parseInt(m[2], 10);
+      const padWidth = m[2].length;
+      const next     = String(num + 1).padStart(padWidth, '0');
+      return `${prefix}${next}`;
+    }
+    return '';
+  }
+  return '';
+}
 
+// Row factories
 const newServiceRow = (id) => ({
   id, name: '', coolTons: 0, systemType: SYSTEM_TYPES.PACKAGED,
   pmMaterials: 0, pmLabor: 0,
 });
-
 const newPackagedRow = (id) => ({
   id, name: '', coolTons: 0, ownerProvided: '',
   baseCostPerTon: 0, quotedEquipCost: null,
@@ -43,9 +79,7 @@ const newPackagedRow = (id) => ({
     pvcCond: '', cuCond: '', thermostat: '', smokeDetectors: '',
     sensorQty: 0, newDrops: '', drumLouvers: '',
   },
-  notes: '',
 });
-
 const newSplitRow = (id) => ({
   id, name: '', coolTons: 0, ownerProvided: '',
   baseCostPerTon: 0, quotedEquipCost: null,
@@ -55,9 +89,7 @@ const newSplitRow = (id) => ({
     pvcCond: '', cuCond: '', thermostat: '', smokeDetectors: '',
     sensorQty: 0, ductTransitions: '',
   },
-  notes: '',
 });
-
 const newWallMountRow = (id) => ({
   id, name: '', coolTons: 0, ownerProvided: '',
   baseCostPerTon: 0, quotedEquipCost: null,
@@ -65,9 +97,7 @@ const newWallMountRow = (id) => ({
     condenserRails: '', condPump: '', cuUnder100: '', cuOver100: '',
     pvcCond: '', cuCond: '', thermostat: '',
   },
-  notes: '',
 });
-
 const newVRFRow = (id) => ({
   id, name: '', coolTons: 0, condensingUnits: 1, indoorUnits: 1,
   indoorCoolAvgTons: 0, ownerProvided: '', baseCostPerTon: 0,
@@ -76,117 +106,259 @@ const newVRFRow = (id) => ({
     condenserRails: '', drainPan: '', cuLine: '', refrigCharge: '',
     pvcCond: '', cuCond: '', thermostat: '', smokeDetectors: '', sensorQty: 0,
   },
-  notes: '',
+});
+const newFanRow = (id) => ({
+  id, name: '', type: FAN_TYPES[0], cfm: 0,
+  mount: 'Roof', drive: 'Direct Drive',
+  ownerProvided: '', unitPrice: 0, quotedEquipCost: null,
+  accessories: {
+    disconnectSwitch: '', gfiOutlet: '', backdraftDamper: '',
+    curb: '', flexConnection: '', vfd: '', birdScreen: '', wiring: '',
+  },
+});
+const newLouverDamperRow = (id) => ({
+  id, name: '', type: LOUVER_DAMPER_TYPES[0],
+  widthIn: 0, heightIn: 0, qty: 1,
+  ownerProvided: '', unitPrice: 0,
+  accessories: { screen: '', actuator: '', sleeve: '' },
 });
 
-// ─── TAB CONFIG ───────────────────────────────────────────────────────────────
+// Tab config
 const TABS = [
-  { id: 'service',   label: 'Service Existing', color: 'blue'   },
-  { id: 'packaged',  label: 'Packaged Units',   color: 'purple' },
-  { id: 'split',     label: 'Split Systems',    color: 'green'  },
-  { id: 'wallMount', label: 'Wall Mount',        color: 'orange' },
-  { id: 'vrf',       label: 'VRF Systems',       color: 'red'    },
+  { id: 'service',      label: 'Service Existing',  color: 'blue'   },
+  { id: 'packaged',     label: 'Packaged Units',    color: 'purple' },
+  { id: 'split',        label: 'Split Systems',     color: 'green'  },
+  { id: 'wallMount',    label: 'Wall Mount',        color: 'orange' },
+  { id: 'vrf',          label: 'VRF Systems',       color: 'red'    },
+  { id: 'fans',         label: 'Fans',              color: 'cyan'   },
+  { id: 'louverDamper', label: 'Louvers & Dampers', color: 'teal'   },
 ];
 
 const TAB_COLOR_CLASSES = {
-  blue:   { active: 'border-blue-600 text-blue-700 bg-blue-50',   dot: 'bg-blue-500'   },
-  purple: { active: 'border-purple-600 text-purple-700 bg-purple-50', dot: 'bg-purple-500' },
-  green:  { active: 'border-green-600 text-green-700 bg-green-50', dot: 'bg-green-500'  },
-  orange: { active: 'border-orange-500 text-orange-700 bg-orange-50', dot: 'bg-orange-500' },
-  red:    { active: 'border-red-600 text-red-700 bg-red-50',       dot: 'bg-red-500'    },
+  blue:   { active: 'border-blue-600 text-blue-700 bg-blue-50',         dot: 'bg-blue-500'   },
+  purple: { active: 'border-purple-600 text-purple-700 bg-purple-50',   dot: 'bg-purple-500' },
+  green:  { active: 'border-green-600 text-green-700 bg-green-50',      dot: 'bg-green-500'  },
+  orange: { active: 'border-orange-500 text-orange-700 bg-orange-50',   dot: 'bg-orange-500' },
+  red:    { active: 'border-red-600 text-red-700 bg-red-50',            dot: 'bg-red-500'    },
+  cyan:   { active: 'border-cyan-600 text-cyan-700 bg-cyan-50',         dot: 'bg-cyan-500'   },
+  teal:   { active: 'border-teal-600 text-teal-700 bg-teal-50',         dot: 'bg-teal-500'   },
 };
 
-// ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
+// Copy-from-project
+function loadProjectSnapshots() {
+  try { return JSON.parse(localStorage.getItem('unit_schedule_project_snapshots') || '[]'); }
+  catch { return []; }
+}
+
+function CopyFromProjectBtn({ sectionKey, onImport }) {
+  const [open, setOpen] = useState(false);
+  const snapshots = loadProjectSnapshots();
+  const available = snapshots.filter(s => s.sections?.[sectionKey]?.length > 0);
+  if (available.length === 0) return null;
+  return (
+    <div className="relative">
+      <button type="button" onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-medium transition-colors"
+        title="Copy rows from a saved project">
+        <CopyIcon size={12} /> Copy from project
+      </button>
+      {open && (
+        <div className="absolute z-40 left-0 top-6 bg-white rounded-xl shadow-xl border border-gray-200 w-64">
+          <div className="px-4 py-2 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+            Saved Projects
+          </div>
+          <ul className="max-h-48 overflow-y-auto divide-y divide-gray-50">
+            {available.map(s => (
+              <li key={s.id} className="flex items-center justify-between px-4 py-2.5 hover:bg-gray-50">
+                <div>
+                  <div className="text-sm text-gray-700 font-medium">{s.projectName || 'Unnamed'}</div>
+                  <div className="text-xs text-gray-400">
+                    {s.sections[sectionKey].length} rows &middot; {new Date(s.savedAt).toLocaleDateString()}
+                  </div>
+                </div>
+                <button type="button"
+                  onClick={() => {
+                    onImport(s.sections[sectionKey]);
+                    setOpen(false);
+                    toast.success(`Copied ${s.sections[sectionKey].length} rows from "${s.projectName || 'project'}"`);
+                  }}
+                  className="text-xs bg-indigo-50 text-indigo-600 hover:bg-indigo-100 px-2 py-0.5 rounded font-medium">
+                  Copy
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Main component
 export default function UnitScheduleModule({ projectInfo }) {
-  const [activeTab, setActiveTab] = useState('service');
+  const [activeTab, setActiveTab]     = useState('service');
+  const [showTechRates, setShowTechRates] = useState(false);
+  const [showPrices, setShowPrices]   = useState(false);
 
-  // Row state per section
-  // API_TODO: initialise these from GET /api/estimates/{projectId}/unit-schedule
-  const [serviceRows,   setServiceRows]   = useState([newServiceRow('s-1'), newServiceRow('s-2')]);
-  const [packagedRows,  setPackagedRows]  = useState([newPackagedRow('p-1')]);
-  const [splitRows,     setSplitRows]     = useState([newSplitRow('sp-1')]);
-  const [wallMountRows, setWallMountRows] = useState([newWallMountRow('wm-1')]);
-  const [vrfRows,       setVRFRows]       = useState([newVRFRow('v-1')]);
+  // Per-type tech rates — adjust these to match your Excel labor columns
+  const [techRates, setTechRates] = useState({
+    packaged:  TECH_RATE,            // $25/hr  — sheet-metal / RTU crew
+    split:     SPLIT_TECH_RATE,      // $65/hr  — HVAC-R certified technician
+    wallMount: WALL_MOUNT_TECH_RATE, // $65/hr  — HVAC-R certified technician
+    vrf:       VRF_TECH_RATE,        // $75/hr  — VRF specialist
+  });
 
-  // Results (recalculated live)
-  // API_TODO: replace with useSWR/React Query when backend is ready
-  const serviceResults   = useMemo(() => calcServiceBatch(serviceRows),      [serviceRows]);
-  const packagedResults  = useMemo(() => calcPackagedBatch(packagedRows),    [packagedRows]);
-  const splitResults     = useMemo(() => calcSplitBatch(splitRows),          [splitRows]);
-  const wallMountResults = useMemo(() => calcWallMountBatch(wallMountRows),  [wallMountRows]);
-  const vrfResults       = useMemo(() => calcVRFBatch(vrfRows),              [vrfRows]);
+  // Per-type accessory price overrides (blank = use default table)
+  const [priceOverrides, setPriceOverrides] = useState({
+    packaged:  {},
+    split:     {},
+    wallMount: {},
+    vrf:       {},
+  });
+
+  // Handlers for price overrides
+  const handlePriceSet = (section, key, value) =>
+    setPriceOverrides(prev => ({
+      ...prev,
+      [section]: { ...prev[section], [key]: value === '' ? '' : value },
+    }));
+
+  const handlePriceReset = (section, key) =>
+    setPriceOverrides(prev => {
+      const next = { ...prev[section] };
+      delete next[key];
+      return { ...prev, [section]: next };
+    });
+
+  const handlePriceResetAll = () =>
+    setPriceOverrides({ packaged: {}, split: {}, wallMount: {}, vrf: {} });
+
+  const [serviceRows,      setServiceRows]      = useState([newServiceRow('s-1'), newServiceRow('s-2')]);
+  const [packagedRows,     setPackagedRows]     = useState([newPackagedRow('p-1')]);
+  const [splitRows,        setSplitRows]        = useState([newSplitRow('sp-1')]);
+  const [wallMountRows,    setWallMountRows]    = useState([newWallMountRow('wm-1')]);
+  const [vrfRows,          setVRFRows]          = useState([newVRFRow('v-1')]);
+  const [fanRows,          setFanRows]          = useState([newFanRow('f-1')]);
+  const [louverDamperRows, setLouverDamperRows] = useState([newLouverDamperRow('ld-1')]);
+
+  // Inject per-type tech rate + price overrides into each row before batch calc
+  const serviceResults  = useMemo(() => calcServiceBatch(serviceRows), [serviceRows]);
+  const packagedResults = useMemo(
+    () => calcPackagedBatch(packagedRows.map(r => ({ ...r, priceOverrides: priceOverrides.packaged }))),
+    [packagedRows, priceOverrides.packaged]
+  );
+  const splitResults = useMemo(
+    () => calcSplitBatch(splitRows.map(r => ({
+      ...r,
+      techRate:      techRates.split,
+      priceOverrides: priceOverrides.split,
+    }))),
+    [splitRows, techRates.split, priceOverrides.split]
+  );
+  const wallMountResults = useMemo(
+    () => calcWallMountBatch(wallMountRows.map(r => ({
+      ...r,
+      techRate:      techRates.wallMount,
+      priceOverrides: priceOverrides.wallMount,
+    }))),
+    [wallMountRows, techRates.wallMount, priceOverrides.wallMount]
+  );
+  const vrfResults = useMemo(
+    () => calcVRFBatch(vrfRows.map(r => ({
+      ...r,
+      techRate:      techRates.vrf,
+      priceOverrides: priceOverrides.vrf,
+    }))),
+    [vrfRows, techRates.vrf, priceOverrides.vrf]
+  );
+  const fanResults          = useMemo(() => calcFanBatch(fanRows),                   [fanRows]);
+  const louverDamperResults = useMemo(() => calcLouverDamperBatch(louverDamperRows), [louverDamperRows]);
 
   const summary = useMemo(() => rollUpUnitSummary({
-    serviceTotals:   serviceResults.totals,
-    packagedTotals:  packagedResults.totals,
-    splitTotals:     splitResults.totals,
-    wallMountTotals: wallMountResults.totals,
-    vrfTotals:       vrfResults.totals,
-  }), [serviceResults, packagedResults, splitResults, wallMountResults, vrfResults]);
+    serviceTotals:      serviceResults.totals,
+    packagedTotals:     packagedResults.totals,
+    splitTotals:        splitResults.totals,
+    wallMountTotals:    wallMountResults.totals,
+    vrfTotals:          vrfResults.totals,
+    fanTotals:          fanResults.totals,
+    louverDamperTotals: louverDamperResults.totals,
+  }), [serviceResults, packagedResults, splitResults, wallMountResults, vrfResults, fanResults, louverDamperResults]);
 
-  // ── Row update helpers ──────────────────────────────────────────────────────
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  const updateService   = useCallback((id, field, value) => {
-    setServiceRows(prev => prev.map(r => r.id !== id ? r : { ...r, [field]: value }));
-  }, []);
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  const updatePackaged  = useCallback((id, field, value) => {
-    setPackagedRows(prev => prev.map(r => {
-      if (r.id !== id) return r;
-      if (field.startsWith('accessories.')) {
-        const k = field.split('.')[1];
-        return { ...r, accessories: { ...r.accessories, [k]: value } };
-      }
-      return { ...r, [field]: value };
-    }));
-  }, []);
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  const updateSplit = useCallback((id, field, value) => {
-    setSplitRows(prev => prev.map(r => {
-      if (r.id !== id) return r;
-      if (field.startsWith('accessories.')) {
-        const k = field.split('.')[1];
-        return { ...r, accessories: { ...r.accessories, [k]: value } };
-      }
-      return { ...r, [field]: value };
-    }));
-  }, []);
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  const updateWallMount = useCallback((id, field, value) => {
-    setWallMountRows(prev => prev.map(r => {
-      if (r.id !== id) return r;
-      if (field.startsWith('accessories.')) {
-        const k = field.split('.')[1];
-        return { ...r, accessories: { ...r.accessories, [k]: value } };
-      }
-      return { ...r, [field]: value };
-    }));
-  }, []);
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  const updateVRF = useCallback((id, field, value) => {
-    setVRFRows(prev => prev.map(r => {
-      if (r.id !== id) return r;
-      if (field.startsWith('accessories.')) {
-        const k = field.split('.')[1];
-        return { ...r, accessories: { ...r.accessories, [k]: value } };
-      }
-      return { ...r, [field]: value };
-    }));
-  }, []);
+  // Push totals to dashboard
+  useEffect(() => {
+    saveModuleTotals('unit_schedule', summary.grand);
+  }, [summary]);
 
-  // ── Remove helpers ──────────────────────────────────────────────────────────
+  // Auto-load demo data on mount when demo mode is active
+  useEffect(() => {
+    if (localStorage.getItem('demo_mode') !== 'true') return;
+    try {
+      const saved = localStorage.getItem('demo_unit_schedule');
+      if (!saved) return;
+      const d = JSON.parse(saved);
+      if (d.serviceRows?.length)      setServiceRows(d.serviceRows);
+      if (d.packagedRows?.length)     setPackagedRows(d.packagedRows);
+      if (d.splitRows?.length)        setSplitRows(d.splitRows);
+      if (d.wallMountRows?.length)    setWallMountRows(d.wallMountRows);
+      if (d.vrfRows?.length)          setVRFRows(d.vrfRows);
+      if (d.fanRows?.length)          setFanRows(d.fanRows);
+      if (d.louverDamperRows?.length) setLouverDamperRows(d.louverDamperRows);
+    } catch (_) {}
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Save snapshot for "Copy From Project"
+  const saveSnapshot = useCallback(() => {
+    const existing = loadProjectSnapshots();
+    const snapshot = {
+      id:          `snap-${Date.now()}`,
+      projectName: projectInfo?.projectName || 'Unnamed project',
+      savedAt:     Date.now(),
+      sections: {
+        service:      serviceRows,
+        packaged:     packagedRows,
+        split:        splitRows,
+        wallMount:    wallMountRows,
+        vrf:          vrfRows,
+        fans:         fanRows,
+        louverDamper: louverDamperRows,
+      },
+    };
+    const updated = [snapshot, ...existing].slice(0, 10);
+    localStorage.setItem('unit_schedule_project_snapshots', JSON.stringify(updated));
+    toast.success(`Snapshot "${snapshot.projectName}" saved`);
+  }, [projectInfo, serviceRows, packagedRows, splitRows, wallMountRows, vrfRows, fanRows, louverDamperRows]);
+
+  // Generic updater
+  const makeUpdater = (setter) =>
+    useCallback((id, field, value) => { // eslint-disable-line react-hooks/rules-of-hooks
+      setter(prev => prev.map(r => {
+        if (r.id !== id) return r;
+        if (field.startsWith('accessories.')) {
+          const k = field.split('.')[1];
+          return { ...r, accessories: { ...r.accessories, [k]: value } };
+        }
+        return { ...r, [field]: value };
+      }));
+    }, [setter]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const updateService      = makeUpdater(setServiceRows);
+  const updatePackaged     = makeUpdater(setPackagedRows);
+  const updateSplit        = makeUpdater(setSplitRows);
+  const updateWallMount    = makeUpdater(setWallMountRows);
+  const updateVRF          = makeUpdater(setVRFRows);
+  const updateFan          = makeUpdater(setFanRows);
+  const updateLouverDamper = makeUpdater(setLouverDamperRows);
+
   const removeRow = (setter, id) => setter(prev => prev.filter(r => r.id !== id));
 
-  // ── Duplicate helpers — deep-clone the row, give it a new ID, append " (copy)" ──
-  // Inserts the clone immediately after the original so it stays in context
   const duplicateRow = (setter, id, prefix) => {
     setter(prev => {
       const idx = prev.findIndex(r => r.id === id);
       if (idx === -1) return prev;
       const original = prev[idx];
       const clone = {
-        ...JSON.parse(JSON.stringify(original)), // deep clone accessories too
-        id: `${prefix}-${Date.now()}`,
+        ...JSON.parse(JSON.stringify(original)),
+        id:   `${prefix}-${Date.now()}`,
         name: original.name ? `${original.name} (copy)` : '(copy)',
       };
       const next = [...prev];
@@ -196,31 +368,76 @@ export default function UnitScheduleModule({ projectInfo }) {
     toast.success('Row duplicated');
   };
 
-  // ── Add helpers ─────────────────────────────────────────────────────────────
-  const addServiceRow   = () => setServiceRows(p   => [...p, newServiceRow(`s-${Date.now()}`)]);
-  const addPackagedRow  = () => setPackagedRows(p  => [...p, newPackagedRow(`p-${Date.now()}`)]);
-  const addSplitRow     = () => setSplitRows(p     => [...p, newSplitRow(`sp-${Date.now()}`)]);
-  const addWallMountRow = () => setWallMountRows(p => [...p, newWallMountRow(`wm-${Date.now()}`)]);
-  const addVRFRow       = () => setVRFRows(p       => [...p, newVRFRow(`v-${Date.now()}`)]);
+  const makeAdder = (setter, factory, prefix) =>
+    (count = 1) => {
+      setter(prev => {
+        let current = [...prev];
+        for (let i = 0; i < count; i++) {
+          const nextName = autoNextName(current);
+          const row = { ...factory(`${prefix}-${Date.now()}-${i}`), name: nextName };
+          current = [...current, row];
+        }
+        return current;
+      });
+      if (count > 1) toast.success(`${count} rows added`);
+    };
 
-  // ── CSV Export ──────────────────────────────────────────────────────────────
-  const exportCSV = () => {
-    const fmt = (n) => (n || 0).toFixed(2);
-    const header = ['Section','#','Name','Tons','Total Material $','Total Labor $','Total Cost $'];
-    const lines = [header.join(',')];
+  const addServiceRow      = makeAdder(setServiceRows,      newServiceRow,      's');
+  const addPackagedRow     = makeAdder(setPackagedRows,     newPackagedRow,     'p');
+  const addSplitRow        = makeAdder(setSplitRows,        newSplitRow,        'sp');
+  const addWallMountRow    = makeAdder(setWallMountRows,    newWallMountRow,    'wm');
+  const addVRFRow          = makeAdder(setVRFRows,          newVRFRow,          'v');
+  const addFanRow          = makeAdder(setFanRows,          newFanRow,          'f');
+  const addLouverDamperRow = makeAdder(setLouverDamperRows, newLouverDamperRow, 'ld');
 
-    const addSection = (label, rows, results) => {
-      results.rows.forEach((r, i) => {
-        lines.push([label, i+1, r.name || '', r.coolTons || 0,
-          fmt(r.totalMaterial), fmt(r.totalLabor), fmt(r.totalCost)].join(','));
+  const makeImporter = (setter, factory, prefix) =>
+    (partialRows) => {
+      setter(prev => {
+        const newRows = partialRows.map((partial, i) => ({
+          ...factory(`${prefix}-imp-${Date.now()}-${i}`),
+          ...partial,
+        }));
+        return [...prev, ...newRows];
       });
     };
-    addSection('Service Existing', serviceRows,   serviceResults);
-    addSection('Packaged Units',   packagedRows,  packagedResults);
-    addSection('Split Systems',    splitRows,     splitResults);
-    addSection('Wall Mount',       wallMountRows, wallMountResults);
-    addSection('VRF Systems',      vrfRows,       vrfResults);
 
+  const importServiceRows      = makeImporter(setServiceRows,      newServiceRow,      's');
+  const importPackagedRows     = makeImporter(setPackagedRows,     newPackagedRow,     'p');
+  const importSplitRows        = makeImporter(setSplitRows,        newSplitRow,        'sp');
+  const importWallMountRows    = makeImporter(setWallMountRows,    newWallMountRow,    'wm');
+  const importVRFRows          = makeImporter(setVRFRows,          newVRFRow,          'v');
+  const importFanRows          = makeImporter(setFanRows,          newFanRow,          'f');
+  const importLouverDamperRows = makeImporter(setLouverDamperRows, newLouverDamperRow, 'ld');
+
+  const makeTemplateInserter = (setter, factory, prefix) =>
+    (templateData) => {
+      setter(prev => [...prev, { ...factory(`${prefix}-tpl-${Date.now()}`), ...templateData }]);
+    };
+
+  const insertServiceTemplate      = makeTemplateInserter(setServiceRows,      newServiceRow,      's');
+  const insertPackagedTemplate     = makeTemplateInserter(setPackagedRows,     newPackagedRow,     'p');
+  const insertSplitTemplate        = makeTemplateInserter(setSplitRows,        newSplitRow,        'sp');
+  const insertWallMountTemplate    = makeTemplateInserter(setWallMountRows,    newWallMountRow,    'wm');
+  const insertVRFTemplate          = makeTemplateInserter(setVRFRows,          newVRFRow,          'v');
+  const insertFanTemplate          = makeTemplateInserter(setFanRows,          newFanRow,          'f');
+  const insertLouverDamperTemplate = makeTemplateInserter(setLouverDamperRows, newLouverDamperRow, 'ld');
+
+  const exportCSV = () => {
+    const f = (n) => (n || 0).toFixed(2);
+    const lines = [['Section','#','Name','Qty/Tons','Total Material $','Total Labor $','Total Cost $'].join(',')];
+    const addSection = (label, rows, results, sizeKey = 'coolTons') => {
+      results.rows.forEach((r, i) => {
+        lines.push([label, i + 1, r.name || '', r[sizeKey] || 0,
+          f(r.totalMaterial), f(r.totalLabor), f(r.totalCost)].join(','));
+      });
+    };
+    addSection('Service Existing', serviceRows,      serviceResults,      'coolTons');
+    addSection('Packaged Units',   packagedRows,     packagedResults,     'coolTons');
+    addSection('Split Systems',    splitRows,        splitResults,        'coolTons');
+    addSection('Wall Mount',       wallMountRows,    wallMountResults,    'coolTons');
+    addSection('VRF Systems',      vrfRows,          vrfResults,          'coolTons');
+    addSection('Fans',             fanRows,          fanResults,          'cfm');
+    addSection('Louvers/Dampers',  louverDamperRows, louverDamperResults, 'qty');
     const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -229,174 +446,267 @@ export default function UnitScheduleModule({ projectInfo }) {
     toast.success('Unit Schedule exported');
   };
 
-  // ── Render current tab ──────────────────────────────────────────────────────
+  const rowCounts = {
+    service:      serviceRows.length,
+    packaged:     packagedRows.length,
+    split:        splitRows.length,
+    wallMount:    wallMountRows.length,
+    vrf:          vrfRows.length,
+    fans:         fanRows.length,
+    louverDamper: louverDamperRows.length,
+  };
+
   const renderTabContent = () => {
     switch (activeTab) {
       case 'service':
         return (
-          <SectionWrapper
-            title="Service of Existing Units"
-            subtitle="PM service visits — material and labor looked up by system type and tonnage"
-            totals={serviceResults.totals}
-            onAdd={addServiceRow}
-          >
+          <SectionWrapper title="Service of Existing Units"
+            subtitle="PM service visits — material and labor by system type and tonnage"
+            sectionKey="service" totals={serviceResults.totals}
+            onAdd={addServiceRow} onImportRows={importServiceRows} onInsertTemplate={insertServiceTemplate}>
             {serviceRows.map((row, i) => {
               const result = serviceResults.rows.find(r => r.id === row.id) || {};
               return (
-                <ServiceRow
-                  key={row.id} row={row} result={result} index={i}
+                <ServiceRow key={row.id} row={row} result={result} index={i}
                   onChange={updateService}
                   onRemove={() => removeRow(setServiceRows, row.id)}
-                  onDuplicate={() => duplicateRow(setServiceRows, row.id, 's')}
-                />
+                  onDuplicate={() => duplicateRow(setServiceRows, row.id, 's')} />
               );
             })}
           </SectionWrapper>
         );
-
       case 'packaged':
         return (
-          <SectionWrapper
-            title="New Packaged Units"
+          <SectionWrapper title="New Packaged Units"
             subtitle="Rooftop / packaged units with curbs, economizers, and accessories"
-            totals={packagedResults.totals}
-            onAdd={addPackagedRow}
-          >
+            sectionKey="packaged" totals={packagedResults.totals}
+            onAdd={addPackagedRow} onImportRows={importPackagedRows} onInsertTemplate={insertPackagedTemplate}>
             {packagedRows.map((row, i) => {
               const result = packagedResults.rows.find(r => r.id === row.id) || {};
               return (
-                <PackagedRow
-                  key={row.id} row={row} result={result} index={i}
+                <PackagedRow key={row.id} row={row} result={result} index={i}
                   onChange={updatePackaged}
                   onRemove={() => removeRow(setPackagedRows, row.id)}
-                  onDuplicate={() => duplicateRow(setPackagedRows, row.id, 'p')}
-                />
+                  onDuplicate={() => duplicateRow(setPackagedRows, row.id, 'p')} />
               );
             })}
           </SectionWrapper>
         );
-
       case 'split':
         return (
-          <SectionWrapper
-            title="Split Systems"
-            subtitle="Standard split systems with condensers, copper lines, and accessories"
-            totals={splitResults.totals}
-            onAdd={addSplitRow}
-          >
+          <SectionWrapper title="Split Systems"
+            subtitle="Standard splits with condensers, copper lines, and accessories"
+            sectionKey="split" totals={splitResults.totals}
+            onAdd={addSplitRow} onImportRows={importSplitRows} onInsertTemplate={insertSplitTemplate}>
             {splitRows.map((row, i) => {
               const result = splitResults.rows.find(r => r.id === row.id) || {};
               return (
-                <SplitRow
-                  key={row.id} row={row} result={result} index={i}
+                <SplitRow key={row.id} row={row} result={result} index={i}
                   onChange={updateSplit}
                   onRemove={() => removeRow(setSplitRows, row.id)}
-                  onDuplicate={() => duplicateRow(setSplitRows, row.id, 'sp')}
-                />
+                  onDuplicate={() => duplicateRow(setSplitRows, row.id, 'sp')} />
               );
             })}
           </SectionWrapper>
         );
-
       case 'wallMount':
         return (
-          <SectionWrapper
-            title="Wall Mounted Split Systems"
+          <SectionWrapper title="Wall Mounted Split Systems"
             subtitle="Mini-split / ductless units with condensate pump and copper lines"
-            totals={wallMountResults.totals}
-            onAdd={addWallMountRow}
-          >
+            sectionKey="wallMount" totals={wallMountResults.totals}
+            onAdd={addWallMountRow} onImportRows={importWallMountRows} onInsertTemplate={insertWallMountTemplate}>
             {wallMountRows.map((row, i) => {
               const result = wallMountResults.rows.find(r => r.id === row.id) || {};
               return (
-                <WallMountRow
-                  key={row.id} row={row} result={result} index={i}
+                <WallMountRow key={row.id} row={row} result={result} index={i}
                   onChange={updateWallMount}
                   onRemove={() => removeRow(setWallMountRows, row.id)}
-                  onDuplicate={() => duplicateRow(setWallMountRows, row.id, 'wm')}
-                />
+                  onDuplicate={() => duplicateRow(setWallMountRows, row.id, 'wm')} />
               );
             })}
           </SectionWrapper>
         );
-
       case 'vrf':
         return (
-          <SectionWrapper
-            title="VRF Systems"
-            subtitle="Variable refrigerant flow systems — multi-zone, multiple condensing & indoor units"
-            totals={vrfResults.totals}
-            onAdd={addVRFRow}
-          >
+          <SectionWrapper title="VRF Systems"
+            subtitle="Variable refrigerant flow — multi-zone, multiple condensing and indoor units"
+            sectionKey="vrf" totals={vrfResults.totals}
+            onAdd={addVRFRow} onImportRows={importVRFRows} onInsertTemplate={insertVRFTemplate}>
             {vrfRows.map((row, i) => {
               const result = vrfResults.rows.find(r => r.id === row.id) || {};
               return (
-                <VRFRow
-                  key={row.id} row={row} result={result} index={i}
+                <VRFRow key={row.id} row={row} result={result} index={i}
                   onChange={updateVRF}
                   onRemove={() => removeRow(setVRFRows, row.id)}
-                  onDuplicate={() => duplicateRow(setVRFRows, row.id, 'v')}
-                />
+                  onDuplicate={() => duplicateRow(setVRFRows, row.id, 'v')} />
               );
             })}
           </SectionWrapper>
         );
-
+      case 'fans':
+        return (
+          <SectionWrapper title="Fans"
+            subtitle="Exhaust, supply, kitchen, and power ventilator fans — sized by CFM"
+            sectionKey="fans" totals={fanResults.totals}
+            onAdd={addFanRow} onImportRows={importFanRows} onInsertTemplate={insertFanTemplate}>
+            {fanRows.map((row, i) => {
+              const result = fanResults.rows.find(r => r.id === row.id) || {};
+              return (
+                <FanRow key={row.id} row={row} result={result} index={i}
+                  onChange={updateFan}
+                  onRemove={() => removeRow(setFanRows, row.id)}
+                  onDuplicate={() => duplicateRow(setFanRows, row.id, 'f')} />
+              );
+            })}
+          </SectionWrapper>
+        );
+      case 'louverDamper':
+        return (
+          <SectionWrapper title="Louvers & Dampers"
+            subtitle="OA/supply/return louvers and fire/smoke/volume/backdraft dampers — sized by face area"
+            sectionKey="louverDamper" totals={louverDamperResults.totals}
+            onAdd={addLouverDamperRow} onImportRows={importLouverDamperRows} onInsertTemplate={insertLouverDamperTemplate}>
+            {louverDamperRows.map((row, i) => {
+              const result = louverDamperResults.rows.find(r => r.id === row.id) || {};
+              return (
+                <LouverDamperRow key={row.id} row={row} result={result} index={i}
+                  onChange={updateLouverDamper}
+                  onRemove={() => removeRow(setLouverDamperRows, row.id)}
+                  onDuplicate={() => duplicateRow(setLouverDamperRows, row.id, 'ld')} />
+              );
+            })}
+          </SectionWrapper>
+        );
       default:
         return null;
     }
   };
 
-  // ── Count non-empty rows per tab ────────────────────────────────────────────
-  const rowCounts = {
-    service:   serviceRows.length,
-    packaged:  packagedRows.length,
-    split:     splitRows.length,
-    wallMount: wallMountRows.length,
-    vrf:       vrfRows.length,
-  };
-
   return (
     <div className="max-w-full">
-      {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Unit Schedule</h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            HVAC equipment scheduling — service, packaged, splits, wall mounts, and VRF
+            HVAC equipment, fans, louvers and dampers — auto-naming, bulk add, templates, CSV import
           </p>
         </div>
-        <button onClick={exportCSV} className="btn-secondary flex items-center gap-2 text-sm">
-          <Download size={15} /> Export CSV
-        </button>
+        <div className="flex items-center gap-2">
+          {localStorage.getItem('demo_mode') === 'true' && (
+            <button
+              onClick={() => {
+                try {
+                  const saved = localStorage.getItem('demo_unit_schedule');
+                  if (!saved) return;
+                  const d = JSON.parse(saved);
+                  if (d.serviceRows?.length)      setServiceRows(d.serviceRows);
+                  if (d.packagedRows?.length)     setPackagedRows(d.packagedRows);
+                  if (d.splitRows?.length)        setSplitRows(d.splitRows);
+                  if (d.wallMountRows?.length)    setWallMountRows(d.wallMountRows);
+                  if (d.vrfRows?.length)          setVRFRows(d.vrfRows);
+                  if (d.fanRows?.length)          setFanRows(d.fanRows);
+                  if (d.louverDamperRows?.length) setLouverDamperRows(d.louverDamperRows);
+                  toast.success('Demo unit schedule loaded!');
+                } catch (_) { toast.error('Could not load demo data'); }
+              }}
+              className="btn-secondary flex items-center gap-2 text-sm text-blue-600 border-blue-200 bg-blue-50 hover:bg-blue-100"
+            >
+              <Play size={15} /> Load Demo
+            </button>
+          )}
+          <button onClick={() => { setShowPrices(v => !v); setShowTechRates(false); }}
+            className={`btn-secondary flex items-center gap-2 text-sm ${showPrices ? 'ring-2 ring-amber-400' : ''}`}
+            title="Override accessory material prices per unit type">
+            <Tag size={15} /> Acc. Prices
+          </button>
+          <button onClick={() => { setShowTechRates(v => !v); setShowPrices(false); }}
+            className={`btn-secondary flex items-center gap-2 text-sm ${showTechRates ? 'ring-2 ring-blue-400' : ''}`}
+            title="Adjust labor rates per unit type">
+            <Settings2 size={15} /> Labor Rates
+          </button>
+          <button onClick={saveSnapshot} className="btn-secondary flex items-center gap-2 text-sm"
+            title="Save a snapshot of this project for use in 'Copy from project'">
+            <CopyIcon size={15} /> Save Snapshot
+          </button>
+          <button onClick={exportCSV} className="btn-secondary flex items-center gap-2 text-sm">
+            <Download size={15} /> Export CSV
+          </button>
+        </div>
       </div>
 
-      {/* Summary panel */}
+      {/* ── Tech Rate Settings Panel ───────────────────────────────────────── */}
+      {showTechRates && (
+        <div className="card p-4 mb-4 border-blue-200 bg-blue-50/40">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h3 className="font-semibold text-gray-700 text-sm">Labor Rates by Unit Type</h3>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Adjust $/hr rates to match your Excel workbook. Packaged RTUs confirmed at $25/hr.
+                Split/Wall-Mount/VRF use refrigerant-certified rates (TX market defaults shown).
+              </p>
+            </div>
+            <button onClick={() => setShowTechRates(false)}
+              className="text-xs text-gray-400 hover:text-gray-600">Close</button>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            {[
+              { key: 'packaged',  label: 'Packaged RTU',    hint: 'Sheet-metal crew',      color: 'purple' },
+              { key: 'split',     label: 'Standard Split',  hint: 'HVAC-R certified tech', color: 'green'  },
+              { key: 'wallMount', label: 'Wall Mount',      hint: 'HVAC-R certified tech', color: 'orange' },
+              { key: 'vrf',       label: 'VRF System',      hint: 'VRF specialist',        color: 'red'    },
+            ].map(({ key, label, hint }) => (
+              <label key={key} className="flex flex-col gap-1">
+                <span className="text-xs font-semibold text-gray-600">{label}</span>
+                <span className="text-[10px] text-gray-400">{hint}</span>
+                <div className="relative">
+                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                  <input
+                    type="number" min="10" max="500" step="5"
+                    className="input text-sm pl-5 pr-8 w-full"
+                    value={techRates[key]}
+                    onChange={e => setTechRates(prev => ({
+                      ...prev, [key]: parseFloat(e.target.value) || 0,
+                    }))}
+                  />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">/hr</span>
+                </div>
+              </label>
+            ))}
+          </div>
+          <div className="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+            <strong>Tip:</strong> To calibrate, pick a unit you know the exact Excel labor for,
+            set all accessories to match, then adjust the $/hr until the totals align.
+          </div>
+        </div>
+      )}
+
+      {/* ── Accessory Price Settings Panel ────────────────────────────────── */}
+      {showPrices && (
+        <AccessoryPriceSettings
+          overrides={priceOverrides}
+          onSet={handlePriceSet}
+          onReset={handlePriceReset}
+          onResetAll={handlePriceResetAll}
+          onClose={() => setShowPrices(false)}
+        />
+      )}
+
       <UnitSummaryPanel summary={summary} />
 
-      {/* Tabs */}
-      <div className="flex gap-1 border-b border-gray-200 mt-6 mb-0">
+      <div className="flex flex-wrap gap-1 border-b border-gray-200 mt-6 mb-0">
         {TABS.map(tab => {
           const isActive = activeTab === tab.id;
           const colors   = TAB_COLOR_CLASSES[tab.color];
           return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`
-                flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors
                 ${isActive
                   ? `${colors.active} border-b-2`
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }
-              `}
-            >
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}>
               <span className={`w-2 h-2 rounded-full ${isActive ? colors.dot : 'bg-gray-300'}`} />
               {tab.label}
-              <span className={`
-                text-xs px-1.5 py-0.5 rounded-full font-semibold
-                ${isActive ? 'bg-white/70' : 'bg-gray-100 text-gray-500'}
-              `}>
+              <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold
+                ${isActive ? 'bg-white/70' : 'bg-gray-100 text-gray-500'}`}>
                 {rowCounts[tab.id]}
               </span>
             </button>
@@ -404,56 +714,105 @@ export default function UnitScheduleModule({ projectInfo }) {
         })}
       </div>
 
-      {/* Tab content */}
-      <div className="mt-0">
-        {renderTabContent()}
-      </div>
+      <div className="mt-0">{renderTabContent()}</div>
     </div>
   );
 }
 
-// ─── SECTION WRAPPER ─────────────────────────────────────────────────────────
-function SectionWrapper({ title, subtitle, totals, onAdd, children }) {
-  const fmt = (n) => `$${(n || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+// Section Wrapper — provides SectionExpandContext + Templates + CSV Import + Copy From Project
+function SectionWrapper({ title, subtitle, sectionKey, totals, onAdd, onImportRows, onInsertTemplate, children }) {
+  const fmt = (n) => `$${(n || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+
+  const [expandCount,   setExpandCount]   = useState(0);
+  const [collapseCount, setCollapseCount] = useState(0);
+  const [bulkCount,     setBulkCount]     = useState(1);
+  const [showCsvModal,  setShowCsvModal]  = useState(false);
 
   return (
-    <div className="card p-0 overflow-hidden rounded-tl-none">
-      {/* Section header */}
-      <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-gray-50">
-        <div>
-          <h2 className="text-base font-semibold text-gray-800">{title}</h2>
-          <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>
+    <SectionExpandContext.Provider value={{ expandCount, collapseCount }}>
+      <div className="card p-0 overflow-hidden rounded-tl-none">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-gray-50">
+          <div className="flex-1 min-w-0 mr-4">
+            <h2 className="text-base font-semibold text-gray-800">{title}</h2>
+            <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>
+          </div>
+
+          <div className="flex items-center gap-1 mr-4">
+            <button onClick={() => setExpandCount(c => c + 1)}
+              className="flex items-center gap-1 text-xs text-gray-400 hover:text-blue-600 px-2 py-1 rounded hover:bg-blue-50 transition-colors"
+              title="Expand all accessory panels">
+              <ChevronDown size={12} /> All
+            </button>
+            <button onClick={() => setCollapseCount(c => c + 1)}
+              className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 px-2 py-1 rounded hover:bg-gray-100 transition-colors"
+              title="Collapse all accessory panels">
+              <ChevronUp size={12} /> All
+            </button>
+          </div>
+
+          <div className="mr-4 relative">
+            <TemplatesPanel sectionKey={sectionKey} onInsert={onInsertTemplate} />
+          </div>
+
+          <div className="flex items-center gap-6 text-sm shrink-0">
+            <div className="text-right">
+              <div className="text-xs text-gray-400 uppercase tracking-wide">Material</div>
+              <div className="font-semibold text-gray-800">{fmt(totals?.totalMaterial)}</div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs text-gray-400 uppercase tracking-wide">Labor</div>
+              <div className="font-semibold text-gray-800">{fmt(totals?.totalLabor)}</div>
+            </div>
+            <div className="text-right border-l border-gray-200 pl-6">
+              <div className="text-xs text-gray-400 uppercase tracking-wide">Section Total</div>
+              <div className="text-lg font-bold text-blue-700">{fmt(totals?.totalCost)}</div>
+            </div>
+          </div>
         </div>
-        <div className="flex items-center gap-6 text-sm">
-          <div className="text-right">
-            <div className="text-xs text-gray-400 uppercase tracking-wide">Material</div>
-            <div className="font-semibold text-gray-800">{fmt(totals?.totalMaterial)}</div>
+
+        {/* Rows */}
+        <div className="divide-y divide-gray-100">{children}</div>
+
+        {/* Footer */}
+        <div className="px-5 py-3 border-t border-gray-100 bg-gray-50 flex items-center gap-4 flex-wrap">
+          <button onClick={() => onAdd(bulkCount)}
+            className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 font-medium">
+            <Plus size={15} />
+            {bulkCount > 1 ? `Add ${bulkCount} Units` : 'Add Unit'}
+          </button>
+
+          <div className="flex items-center gap-1.5 text-xs text-gray-400">
+            <span>x</span>
+            <input type="number" min="1" max="20" value={bulkCount}
+              onChange={e => setBulkCount(Math.max(1, Math.min(20, parseInt(e.target.value) || 1)))}
+              className="w-12 border border-gray-200 rounded px-1.5 py-0.5 text-center text-xs text-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-400"
+              title="Set > 1 to add multiple sequentially-named rows at once" />
+            <span className="text-gray-300 hover:text-blue-400 cursor-help transition-colors"
+              title="Names are auto-incremented: EF-1 -> EF-2 -> EF-3">
+              <Info size={12} />
+            </span>
           </div>
-          <div className="text-right">
-            <div className="text-xs text-gray-400 uppercase tracking-wide">Labor</div>
-            <div className="font-semibold text-gray-800">{fmt(totals?.totalLabor)}</div>
-          </div>
-          <div className="text-right border-l border-gray-200 pl-6">
-            <div className="text-xs text-gray-400 uppercase tracking-wide">Section Total</div>
-            <div className="text-lg font-bold text-blue-700">{fmt(totals?.totalCost)}</div>
+
+          <div className="flex items-center gap-3 ml-auto">
+            <button type="button" onClick={() => setShowCsvModal(true)}
+              className="flex items-center gap-1 text-xs text-green-600 hover:text-green-800 font-medium transition-colors"
+              title="Import rows from CSV">
+              <Upload size={12} /> Import CSV
+            </button>
+            <CopyFromProjectBtn sectionKey={sectionKey} onImport={onImportRows} />
           </div>
         </div>
       </div>
 
-      {/* Rows */}
-      <div className="divide-y divide-gray-100">
-        {children}
-      </div>
-
-      {/* Add row */}
-      <div className="px-5 py-3 border-t border-gray-100 bg-gray-50">
-        <button
-          onClick={onAdd}
-          className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 font-medium"
-        >
-          <Plus size={15} /> Add Unit
-        </button>
-      </div>
-    </div>
+      {showCsvModal && (
+        <CsvImportModal
+          sectionKey={sectionKey}
+          sectionLabel={title}
+          onImport={onImportRows}
+          onClose={() => setShowCsvModal(false)}
+        />
+      )}
+    </SectionExpandContext.Provider>
   );
 }

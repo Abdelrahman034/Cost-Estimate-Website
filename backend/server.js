@@ -4,14 +4,16 @@ const cors    = require('cors');
 const path    = require('path');
 
 const { registerRoutes } = require('./routes');
+const prisma             = require('./prisma/client');
+const authRoutes         = require('./routes/auth');
 
-// Init SQLite DB on startup
+// Keep SQLite alive during migration (existing routes still use it)
 const { getDB } = require('./services');
 try {
   getDB();
-  console.log('SQLite database ready (data/estimator.db)');
+  console.log('SQLite database ready (legacy — migrating to PostgreSQL)');
 } catch (err) {
-  console.error('Database init failed:', err.message);
+  console.error('SQLite init failed:', err.message);
 }
 
 const app  = express();
@@ -24,21 +26,37 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/outputs', express.static(path.join(__dirname, 'outputs')));
 
+// ── New Prisma-based routes ───────────────────────────────────────────────────
+app.use('/api/auth', authRoutes);
+
+// ── Legacy SQLite routes (kept during migration) ──────────────────────────────
 registerRoutes(app);
 
-app.get('/api/health', (req, res) => {
+app.get('/api/health', async (req, res) => {
+  let dbStatus = 'unknown';
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    dbStatus = 'PostgreSQL connected';
+  } catch {
+    dbStatus = 'PostgreSQL unreachable';
+  }
+
   res.json({
-    status: 'OK',
-    message: 'HVAC Estimator API running',
-    ai: process.env.GROQ_API_KEY ? 'Groq connected' : 'GROQ_API_KEY not set',
-    db: 'SQLite (data/estimator.db)',
+    status:    'OK',
+    message:   'HVAC Estimator API running',
+    ai:        process.env.GROQ_API_KEY ? 'Groq connected' : 'GROQ_API_KEY not set',
+    db:        dbStatus,
     timestamp: new Date(),
   });
 });
+
+// Close Prisma connection cleanly when the server stops
+process.on('SIGINT',  async () => { await prisma.$disconnect(); process.exit(0); });
+process.on('SIGTERM', async () => { await prisma.$disconnect(); process.exit(0); });
 
 app.listen(PORT, () => {
   console.log('\nHVAC Estimator Backend  ->  http://localhost:' + PORT);
   console.log('Health check            ->  http://localhost:' + PORT + '/api/health');
   console.log('AI provider             ->  Groq (free tier)');
-  console.log('Database               ->  SQLite\n');
+  console.log('Database               ->  PostgreSQL (Prisma) + SQLite (legacy)\n');
 });

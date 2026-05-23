@@ -1,7 +1,11 @@
 export { default as MetalDuctModule } from './MetalDuct/MetalDuctModule';
+export { FanScheduleModule } from './FanSchedule';
 export { default as DiffuserModule } from './Diffuser/DiffuserModule';
 export { SummaryModule } from './Summary';
 export { DrawingAnalyzer, PriceMonitor, ProposalGenerator } from './ai';
 export { UnitScheduleModule } from './UnitSchedule';
 export { SupplierRFQModule } from './SupplierRFQ';
 export { ScenarioModule } from './ScenarioComparison';
+export { ChangeLogModule } from './ChangeLog';
+export { ProposalPdfModule } from './ProposalPdf';
+export { ElectricHeatModule } from './ElectricHeat';

@@ -4,6 +4,10 @@ A full-stack web app that replaces your Excel workbook with AI-enhanced estimati
 
 ## Quick Start
 
+### Prerequisite
+
+Use Node.js 20.19 or newer, or Node.js 22.12+, or Node.js 24+ to match Prisma 7.8.0.
+
 ### 1. One-click launch
 ```
 Double-click START.bat

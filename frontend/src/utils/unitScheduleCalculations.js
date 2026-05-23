@@ -29,7 +29,18 @@ export const SYSTEM_TYPES = {
   BOILER:      'Boiler',
 };
 
-export const TECH_RATE = 25; // $/hr — from Excel BR row in Packaged Units pricing
+// ─── TECH RATES ($/hr) ────────────────────────────────────────────────────────
+// Packaged RTU installers vs refrigerant-certified technicians command different
+// rates. TECH_RATE (packaged) confirmed matching Excel. The others are industry-
+// standard Texas HVAC-R market rates — adjust in the Unit Schedule Settings panel
+// if your Excel uses different figures.
+export const TECH_RATE            = 25;  // Packaged / RTU (sheet-metal crew)
+export const SPLIT_TECH_RATE      = 65;  // Standard split (HVAC-R certified)
+export const WALL_MOUNT_TECH_RATE = 65;  // Wall-mount split
+export const VRF_TECH_RATE        = 75;  // VRF specialist
+export const FAN_TECH_RATE        = 25;  // Fan schedule
+export const LD_TECH_RATE         = 25;  // Louvers & dampers
+
 export const MISC_CONSUMABLES_PCT = 0.03; // 3% of accessories
 
 // ─── SERVICE OF EXISTING UNITS — Pricing Tables ──────────────────────────────
@@ -236,8 +247,12 @@ export const VRF_LABOR_HOURS = {
 // This is the web equivalent of: =INDEX(table, MATCH(tons, sizes, 1))
 
 /**
- * Look up a value from a [tons, value] table using interpolation.
- * Matches Excel's MATCH with match_type=1 (finds largest value <= lookup_value).
+ * Look up a value from a [tons, value] table using Excel-style FLOOR match.
+ * Mirrors Excel INDEX/MATCH with match_type=1:
+ *   → returns the value at the largest breakpoint that is ≤ the lookup value.
+ *
+ * NOTE: Excel does NOT interpolate between breakpoints — it steps.
+ * This corrects the earlier linear-interpolation implementation.
  */
 export function lookupByTons(table, tons) {
   if (!Array.isArray(table)) return table; // flat rate — return as-is
@@ -246,16 +261,16 @@ export function lookupByTons(table, tons) {
   if (t <= sorted[0][0]) return sorted[0][1];
   if (t >= sorted[sorted.length - 1][0]) return sorted[sorted.length - 1][1];
 
-  // Interpolate between two bracketing rows
-  for (let i = 0; i < sorted.length - 1; i++) {
-    const [t0, v0] = sorted[i];
-    const [t1, v1] = sorted[i + 1];
-    if (t >= t0 && t <= t1) {
-      const ratio = (t - t0) / (t1 - t0);
-      return v0 + (v1 - v0) * ratio;
+  // Floor match: walk forward, keep updating result until breakpoint exceeds t
+  let result = sorted[0][1];
+  for (let i = 0; i < sorted.length; i++) {
+    if (t >= sorted[i][0]) {
+      result = sorted[i][1];
+    } else {
+      break;
     }
   }
-  return sorted[sorted.length - 1][1];
+  return result;
 }
 
 function round2(n) { return Math.round(n * 100) / 100; }
@@ -335,6 +350,7 @@ export function calcPackagedUnit(unit) {
     baseCostPerTon = 0,
     quotedEquipCost = null,
     accessories = {},
+    priceOverrides = {}, // user-editable price overrides from settings panel
   } = unit;
 
   const tons = Number(coolTons) || 0;
@@ -347,13 +363,18 @@ export function calcPackagedUnit(unit) {
   let accLabor    = 0;
   let accHours    = 0;
 
-  // Helper to add an accessory
-  const addAcc = (sel, matTable, hoursTable) => {
+  // Resolve material: use override if set, else look up from table
+  const resolveMat = (key, defaultTable) => {
+    if (priceOverrides[key] != null && priceOverrides[key] !== '') return Number(priceOverrides[key]);
+    return Array.isArray(defaultTable) ? lookupByTons(defaultTable, tons) : (Number(defaultTable) || 0);
+  };
+
+  // Helper to add an accessory — key enables price override lookup
+  const addAcc = (sel, matTable, hoursTable, key = null) => {
     if (!sel || sel === '') return;
-    const mat   = Array.isArray(matTable) ? lookupByTons(matTable, tons) : (Number(matTable) || 0);
-    const hrs   = Array.isArray(hoursTable) ? lookupByTons(hoursTable, tons) : (Number(hoursTable) || 0);
-    const matVal = sel === 'xx' ? 0 : round2(mat);
-    accMaterial += matVal;
+    const mat = key ? resolveMat(key, matTable) : (Array.isArray(matTable) ? lookupByTons(matTable, tons) : (Number(matTable) || 0));
+    const hrs = Array.isArray(hoursTable) ? lookupByTons(hoursTable, tons) : (Number(hoursTable) || 0);
+    accMaterial += sel === 'xx' ? 0 : round2(mat);
     accLabor    += round2(hrs * TECH_RATE);
     accHours    += round2(hrs);
   };
@@ -361,42 +382,34 @@ export function calcPackagedUnit(unit) {
   const T = PKG_ACCESSORY_TABLES;
   const L = PKG_LABOR_HOURS;
 
-  // Standard Curb
-  addAcc(accessories.standardCurb,  T.standardCurb,  L.standardCurb);
-  // Metal Roof Curb
-  addAcc(accessories.metalRoofCurb, T.metalRoofCurb, L.metalRoofCurb);
-  // Curb Adapter
-  addAcc(accessories.curbAdapter,   T.curbAdapter,   L.curbAdapter);
-  // Economizer
-  addAcc(accessories.economizer,    T.economizer,    L.economizer);
-  // PVC Condensate
-  addAcc(accessories.pvcCond,       T.pvcCond,       L.pvcCond);
-  // CU Condensate
-  addAcc(accessories.cuCond,        T.cuCond,        L.cuCond);
-  // Thermostat
-  addAcc(accessories.thermostat,    T.thermostat,    L.thermostat);
-  // Smoke Detectors (qty-based)
+  addAcc(accessories.standardCurb,  T.standardCurb,  L.standardCurb,  'standardCurb');
+  addAcc(accessories.metalRoofCurb, T.metalRoofCurb, L.metalRoofCurb, 'metalRoofCurb');
+  addAcc(accessories.curbAdapter,   T.curbAdapter,   L.curbAdapter,   'curbAdapter');
+  addAcc(accessories.economizer,    T.economizer,    L.economizer,    'economizer');
+  addAcc(accessories.pvcCond,       T.pvcCond,       L.pvcCond,       'pvcCond');
+  addAcc(accessories.cuCond,        T.cuCond,        L.cuCond,        'cuCond');
+  addAcc(accessories.thermostat,    T.thermostat,    L.thermostat,    'thermostat');
+  addAcc(accessories.newDrops,      T.newDrops,      L.newDrops,      'newDrops');
+  addAcc(accessories.drumLouvers,   T.drumLouvers,   L.drumLouvers,   'drumLouvers');
+
+  // Smoke Detectors (qty-based, flat rate per detector)
   if (accessories.smokeDetectors && accessories.smokeDetectors !== '') {
-    const qty = accessories.smokeDetectors === 'xx' ? 0 : Number(accessories.smokeDetectors) || 1;
-    const mat = accessories.smokeDetectors === 'xx' ? 0 : round2(T.smokeDetector * qty);
-    const hrs = round2(lookupByTons(L.smokeDetector, tons) * (Number(accessories.smokeDetectors) || 1));
-    if (accessories.smokeDetectors !== '') {
-      accMaterial += mat;
-      accLabor    += round2(hrs * TECH_RATE);
-      accHours    += hrs;
-    }
+    const qty        = accessories.smokeDetectors === 'xx' ? 0 : Number(accessories.smokeDetectors) || 1;
+    const unitPrice  = resolveMat('smokeDetector', T.smokeDetector);
+    const mat        = accessories.smokeDetectors === 'xx' ? 0 : round2(unitPrice * qty);
+    const hrs        = round2(lookupByTons(L.smokeDetector, tons) * (Number(accessories.smokeDetectors) || 1));
+    accMaterial += mat;
+    accLabor    += round2(hrs * TECH_RATE);
+    accHours    += hrs;
   }
   // Sensors (CO/Temp) — qty field
   if (accessories.sensorQty && Number(accessories.sensorQty) > 0) {
-    const qty = Number(accessories.sensorQty);
-    accMaterial += round2(T.sensors * qty);
+    const qty        = Number(accessories.sensorQty);
+    const unitPrice  = resolveMat('sensors', T.sensors);
+    accMaterial += round2(unitPrice * qty);
     accLabor    += round2(lookupByTons(L.sensors, tons) * qty * TECH_RATE);
     accHours    += round2(lookupByTons(L.sensors, tons) * qty);
   }
-  // New Drops
-  addAcc(accessories.newDrops,  T.newDrops,  L.newDrops);
-  // Drum Louvers
-  addAcc(accessories.drumLouvers, T.drumLouvers, L.drumLouvers);
 
   // Base install labor (always included)
   const baseHours  = lookupByTons(L.baseUnit, tons);
@@ -407,9 +420,9 @@ export function calcPackagedUnit(unit) {
   accLabor  += baseLabor + startLabor;
   accHours  += baseHours + startHours;
 
-  // Stat wire (per-unit flat rate)
+  // Stat wire (auto-added with thermostat)
   if (accessories.thermostat && accessories.thermostat !== '') {
-    const statMat = accessories.thermostat === 'xx' ? 0 : T.statWire;
+    const statMat = accessories.thermostat === 'xx' ? 0 : resolveMat('statWire', T.statWire);
     const statHrs = lookupByTons(L.statWire, tons);
     accMaterial += statMat;
     accLabor    += round2(statHrs * TECH_RATE);
@@ -446,6 +459,8 @@ export function calcSplitUnit(unit) {
     baseCostPerTon = 0,
     quotedEquipCost = null,
     accessories = {},
+    techRate = SPLIT_TECH_RATE,  // allow override from settings
+    priceOverrides = {},         // user-editable price overrides
   } = unit;
 
   const tons = Number(coolTons) || 0;
@@ -455,56 +470,64 @@ export function calcSplitUnit(unit) {
   let accMaterial = 0;
   let accLabor    = 0;
   let accHours    = 0;
-
-  const addAcc = (sel, matTable, hoursTable) => {
-    if (!sel || sel === '') return;
-    const mat = Array.isArray(matTable) ? lookupByTons(matTable, tons) : (Number(matTable) || 0);
-    const hrs = Array.isArray(hoursTable) ? lookupByTons(hoursTable, tons) : (Number(hoursTable) || 0);
-    accMaterial += sel === 'xx' ? 0 : round2(mat);
-    accLabor    += round2(hrs * TECH_RATE);
-    accHours    += round2(hrs);
-  };
+  const TR = Number(techRate) || SPLIT_TECH_RATE;
 
   const T = SPLIT_ACCESSORY_TABLES;
   const L = SPLIT_LABOR_HOURS;
 
-  addAcc(accessories.condenserRails,  T.condenserRails,  L.condenserRails);
-  addAcc(accessories.drainPan,        T.drainPan,        L.drainPan);
-  addAcc(accessories.cuLineUnder100,  T.cuLineUnder100,  L.cuLineUnder100);
-  addAcc(accessories.cuLineOver100,   T.cuLineOver100,   L.cuLineOver100);
-  addAcc(accessories.cuRollUnder100,  T.cuRollUnder100,  L.cuRollUnder100);
-  addAcc(accessories.cuRollOver100,   T.cuRollOver100,   L.cuRollOver100);
-  addAcc(accessories.oaDamper,        T.oaDamper,        L.oaDamper);
-  addAcc(accessories.floatSwitch,     T.floatSwitch,     L.floatSwitch);
-  addAcc(accessories.pvcCond,         T.pvcCond,         L.pvcCond);
-  addAcc(accessories.cuCond,          T.cuCond,          L.cuCond);
-  addAcc(accessories.thermostat,      T.thermostat,      L.thermostat);
-  addAcc(accessories.ductTransitions, T.ductTransitions, L.ductTransitions);
+  const resolveMat = (key, defaultTable) => {
+    if (priceOverrides[key] != null && priceOverrides[key] !== '') return Number(priceOverrides[key]);
+    return Array.isArray(defaultTable) ? lookupByTons(defaultTable, tons) : (Number(defaultTable) || 0);
+  };
+
+  const addAcc = (sel, matTable, hoursTable, key = null) => {
+    if (!sel || sel === '') return;
+    const mat = key ? resolveMat(key, matTable) : (Array.isArray(matTable) ? lookupByTons(matTable, tons) : (Number(matTable) || 0));
+    const hrs = Array.isArray(hoursTable) ? lookupByTons(hoursTable, tons) : (Number(hoursTable) || 0);
+    accMaterial += sel === 'xx' ? 0 : round2(mat);
+    accLabor    += round2(hrs * TR);
+    accHours    += round2(hrs);
+  };
+
+  addAcc(accessories.condenserRails,  T.condenserRails,  L.condenserRails,  'condenserRails');
+  addAcc(accessories.drainPan,        T.drainPan,        L.drainPan,        'drainPan');
+  addAcc(accessories.cuLineUnder100,  T.cuLineUnder100,  L.cuLineUnder100,  'cuLineUnder100');
+  addAcc(accessories.cuLineOver100,   T.cuLineOver100,   L.cuLineOver100,   'cuLineOver100');
+  addAcc(accessories.cuRollUnder100,  T.cuRollUnder100,  L.cuRollUnder100,  'cuRollUnder100');
+  addAcc(accessories.cuRollOver100,   T.cuRollOver100,   L.cuRollOver100,   'cuRollOver100');
+  addAcc(accessories.oaDamper,        T.oaDamper,        L.oaDamper,        'oaDamper');
+  addAcc(accessories.floatSwitch,     T.floatSwitch,     L.floatSwitch,     'floatSwitch');
+  addAcc(accessories.pvcCond,         T.pvcCond,         L.pvcCond,         'pvcCond');
+  addAcc(accessories.cuCond,          T.cuCond,          L.cuCond,          'cuCond');
+  addAcc(accessories.thermostat,      T.thermostat,      L.thermostat,      'thermostat');
+  addAcc(accessories.ductTransitions, T.ductTransitions, L.ductTransitions, 'ductTransitions');
 
   if (accessories.smokeDetectors && accessories.smokeDetectors !== '') {
-    const mat = accessories.smokeDetectors === 'xx' ? 0 : T.smokeDetector;
+    const mat = accessories.smokeDetectors === 'xx' ? 0 : resolveMat('smokeDetector', T.smokeDetector);
     const hrs = lookupByTons(L.smokeDetector, tons);
     accMaterial += mat;
-    accLabor    += round2(hrs * TECH_RATE);
+    accLabor    += round2(hrs * TR);
     accHours    += hrs;
   }
   if (accessories.sensorQty && Number(accessories.sensorQty) > 0) {
-    const qty = Number(accessories.sensorQty);
-    accMaterial += round2(T.sensors * qty);
-    accLabor    += round2(lookupByTons(L.sensors, tons) * qty * TECH_RATE);
+    const qty       = Number(accessories.sensorQty);
+    const unitPrice = resolveMat('sensors', T.sensors);
+    accMaterial += round2(unitPrice * qty);
+    accLabor    += round2(lookupByTons(L.sensors, tons) * qty * TR);
     accHours    += round2(lookupByTons(L.sensors, tons) * qty);
   }
+  // Stat wire (auto-added with thermostat)
   if (accessories.thermostat && accessories.thermostat !== '') {
-    const statMat = accessories.thermostat === 'xx' ? 0 : T.statWire;
+    const statMat = accessories.thermostat === 'xx' ? 0 : resolveMat('statWire', T.statWire);
     const statHrs = lookupByTons(L.statWire, tons);
     accMaterial += statMat;
-    accLabor    += round2(statHrs * TECH_RATE);
+    accLabor    += round2(statHrs * TR);
     accHours    += statHrs;
   }
 
   const baseHours  = lookupByTons(L.baseUnit, tons);
   const startHours = lookupByTons(L.startUp, tons);
-  accLabor  += round2((baseHours + startHours) * TECH_RATE);
+  accLabor  += round2((baseHours + startHours) * TR);
   accHours  += baseHours + startHours;
 
   const misc        = round2(accMaterial * MISC_CONSUMABLES_PCT);
@@ -536,6 +559,8 @@ export function calcWallMountUnit(unit) {
     baseCostPerTon = 0,
     quotedEquipCost = null,
     accessories = {},
+    techRate = WALL_MOUNT_TECH_RATE, // allow override from settings
+    priceOverrides = {},             // user-editable price overrides
   } = unit;
 
   const tons = Number(coolTons) || 0;
@@ -545,38 +570,45 @@ export function calcWallMountUnit(unit) {
   let accMaterial = 0;
   let accLabor    = 0;
   let accHours    = 0;
-
-  const addAcc = (sel, matTable, hoursTable) => {
-    if (!sel || sel === '') return;
-    const mat = Array.isArray(matTable) ? lookupByTons(matTable, tons) : (Number(matTable) || 0);
-    const hrs = Array.isArray(hoursTable) ? lookupByTons(hoursTable, tons) : (Number(hoursTable) || 0);
-    accMaterial += sel === 'xx' ? 0 : round2(mat);
-    accLabor    += round2(hrs * TECH_RATE);
-    accHours    += round2(hrs);
-  };
+  const TR = Number(techRate) || WALL_MOUNT_TECH_RATE;
 
   const T = WALL_MOUNT_ACCESSORY_TABLES;
   const L = WALL_MOUNT_LABOR_HOURS;
 
-  addAcc(accessories.condenserRails, T.condenserRails, L.condenserRails);
-  addAcc(accessories.condPump,       T.condPump,       L.condPump);
-  addAcc(accessories.cuUnder100,     T.cuUnder100,     L.cuUnder100);
-  addAcc(accessories.cuOver100,      T.cuOver100,      L.cuOver100);
-  addAcc(accessories.pvcCond,        T.pvcCond,        L.pvcCond);
-  addAcc(accessories.cuCond,         T.cuCond,         L.cuCond);
-  addAcc(accessories.thermostat,     T.thermostat,     L.thermostat);
+  const resolveMat = (key, defaultTable) => {
+    if (priceOverrides[key] != null && priceOverrides[key] !== '') return Number(priceOverrides[key]);
+    return Array.isArray(defaultTable) ? lookupByTons(defaultTable, tons) : (Number(defaultTable) || 0);
+  };
 
+  const addAcc = (sel, matTable, hoursTable, key = null) => {
+    if (!sel || sel === '') return;
+    const mat = key ? resolveMat(key, matTable) : (Array.isArray(matTable) ? lookupByTons(matTable, tons) : (Number(matTable) || 0));
+    const hrs = Array.isArray(hoursTable) ? lookupByTons(hoursTable, tons) : (Number(hoursTable) || 0);
+    accMaterial += sel === 'xx' ? 0 : round2(mat);
+    accLabor    += round2(hrs * TR);
+    accHours    += round2(hrs);
+  };
+
+  addAcc(accessories.condenserRails, T.condenserRails, L.condenserRails, 'condenserRails');
+  addAcc(accessories.condPump,       T.condPump,       L.condPump,       'condPump');
+  addAcc(accessories.cuUnder100,     T.cuUnder100,     L.cuUnder100,     'cuUnder100');
+  addAcc(accessories.cuOver100,      T.cuOver100,      L.cuOver100,      'cuOver100');
+  addAcc(accessories.pvcCond,        T.pvcCond,        L.pvcCond,        'pvcCond');
+  addAcc(accessories.cuCond,         T.cuCond,         L.cuCond,         'cuCond');
+  addAcc(accessories.thermostat,     T.thermostat,     L.thermostat,     'thermostat');
+
+  // Stat wire (auto-added with thermostat)
   if (accessories.thermostat && accessories.thermostat !== '') {
-    const statMat = accessories.thermostat === 'xx' ? 0 : T.statWire;
+    const statMat = accessories.thermostat === 'xx' ? 0 : resolveMat('statWire', T.statWire);
     const statHrs = lookupByTons(L.statWire, tons);
     accMaterial += statMat;
-    accLabor    += round2(statHrs * TECH_RATE);
+    accLabor    += round2(statHrs * TR);
     accHours    += statHrs;
   }
 
   const baseHours  = lookupByTons(L.baseUnit, tons);
   const startHours = lookupByTons(L.startUp, tons);
-  accLabor  += round2((baseHours + startHours) * TECH_RATE);
+  accLabor  += round2((baseHours + startHours) * TR);
   accHours  += baseHours + startHours;
 
   const misc       = round2(accMaterial * MISC_CONSUMABLES_PCT);
@@ -613,6 +645,8 @@ export function calcVRFUnit(unit) {
     quotedEquipCost = null,
     cuLineAvgLength = 0,
     accessories = {},
+    techRate = VRF_TECH_RATE,  // allow override from settings
+    priceOverrides = {},       // user-editable price overrides
   } = unit;
 
   const tons = Number(coolTons) || 0;
@@ -623,61 +657,75 @@ export function calcVRFUnit(unit) {
   let accMaterial = 0;
   let accLabor    = 0;
   let accHours    = 0;
-
-  const addAcc = (sel, matTable, hoursTable) => {
-    if (!sel || sel === '') return;
-    const mat = Array.isArray(matTable) ? lookupByTons(matTable, tons) : (Number(matTable) || 0);
-    const hrs = Array.isArray(hoursTable) ? lookupByTons(hoursTable, tons) : (Number(hoursTable) || 0);
-    accMaterial += sel === 'xx' ? 0 : round2(mat);
-    accLabor    += round2(hrs * TECH_RATE);
-    accHours    += round2(hrs);
-  };
+  const TR = Number(techRate) || VRF_TECH_RATE;
 
   const T = VRF_ACCESSORY_TABLES;
   const L = VRF_LABOR_HOURS;
 
-  addAcc(accessories.condenserRails, T.condenserRails, L.condenserRails);
-  addAcc(accessories.drainPan,       T.drainPan,       L.drainPan);
-  addAcc(accessories.pvcCond,        T.pvcCond,        L.pvcCond);
-  addAcc(accessories.cuCond,         T.cuCond,         L.cuCond);
-  addAcc(accessories.thermostat,     T.thermostat,     L.thermostat);
-  addAcc(accessories.smokeDetectors, T.smokeDetector,  L.smokeDetector);
+  const resolveMat = (key, defaultTable) => {
+    if (priceOverrides[key] != null && priceOverrides[key] !== '') return Number(priceOverrides[key]);
+    return Array.isArray(defaultTable) ? lookupByTons(defaultTable, tons) : (Number(defaultTable) || 0);
+  };
+
+  const addAcc = (sel, matTable, hoursTable, key = null) => {
+    if (!sel || sel === '') return;
+    const mat = key ? resolveMat(key, matTable) : (Array.isArray(matTable) ? lookupByTons(matTable, tons) : (Number(matTable) || 0));
+    const hrs = Array.isArray(hoursTable) ? lookupByTons(hoursTable, tons) : (Number(hoursTable) || 0);
+    accMaterial += sel === 'xx' ? 0 : round2(mat);
+    accLabor    += round2(hrs * TR);
+    accHours    += round2(hrs);
+  };
+
+  addAcc(accessories.condenserRails, T.condenserRails, L.condenserRails, 'condenserRails');
+  addAcc(accessories.drainPan,       T.drainPan,       L.drainPan,       'drainPan');
+  addAcc(accessories.pvcCond,        T.pvcCond,        L.pvcCond,        'pvcCond');
+  addAcc(accessories.cuCond,         T.cuCond,         L.cuCond,         'cuCond');
+  addAcc(accessories.thermostat,     T.thermostat,     L.thermostat,     'thermostat');
+  addAcc(accessories.smokeDetectors, T.smokeDetector,  L.smokeDetector,  'smokeDetector');
 
   // CU line cost: per-ft rate × avg length × indoor units
   if (accessories.cuLine && accessories.cuLine !== '' && Number(cuLineAvgLength) > 0) {
-    const ratePerFt = lookupByTons(T.cuLineRatePerFt, indoorAvg);
-    const lineMat   = accessories.cuLine === 'xx' ? 0 : round2(ratePerFt * Number(cuLineAvgLength) * Number(indoorUnits));
-    const lineHrs   = round2(lookupByTons(L.cuLine, tons));
+    const defaultRatePerFt = lookupByTons(T.cuLineRatePerFt, indoorAvg);
+    const ratePerFt = (priceOverrides.cuLineRatePerFt != null && priceOverrides.cuLineRatePerFt !== '')
+      ? Number(priceOverrides.cuLineRatePerFt)
+      : defaultRatePerFt;
+    const lineMat = accessories.cuLine === 'xx' ? 0 : round2(ratePerFt * Number(cuLineAvgLength) * Number(indoorUnits));
+    const lineHrs = round2(lookupByTons(L.cuLine, tons));
     accMaterial += lineMat;
-    accLabor    += round2(lineHrs * TECH_RATE);
+    accLabor    += round2(lineHrs * TR);
     accHours    += lineHrs;
   }
 
   // Refrigerant supplemental
   if (accessories.refrigCharge && accessories.refrigCharge !== '') {
-    const refMat = accessories.refrigCharge === 'xx' ? 0 : round2(T.refrigChargePerTon * indoorAvg * Number(indoorUnits));
+    const baseRate = (priceOverrides.refrigChargePerTon != null && priceOverrides.refrigChargePerTon !== '')
+      ? Number(priceOverrides.refrigChargePerTon)
+      : T.refrigChargePerTon;
+    const refMat = accessories.refrigCharge === 'xx' ? 0 : round2(baseRate * indoorAvg * Number(indoorUnits));
     accMaterial += refMat;
   }
 
   if (accessories.sensorQty && Number(accessories.sensorQty) > 0) {
-    const qty = Number(accessories.sensorQty);
-    accMaterial += round2(T.sensors * qty);
-    accLabor    += round2(lookupByTons(L.sensors, tons) * qty * TECH_RATE);
+    const qty       = Number(accessories.sensorQty);
+    const unitPrice = resolveMat('sensors', T.sensors);
+    accMaterial += round2(unitPrice * qty);
+    accLabor    += round2(lookupByTons(L.sensors, tons) * qty * TR);
     accHours    += round2(lookupByTons(L.sensors, tons) * qty);
   }
+  // Stat wire (auto-added with thermostat)
   if (accessories.thermostat && accessories.thermostat !== '') {
-    const statMat = accessories.thermostat === 'xx' ? 0 : T.statWire;
+    const statMat = accessories.thermostat === 'xx' ? 0 : resolveMat('statWire', T.statWire);
     const statHrs = lookupByTons(L.statWire, tons);
     accMaterial += statMat;
-    accLabor    += round2(statHrs * TECH_RATE);
+    accLabor    += round2(statHrs * TR);
     accHours    += statHrs;
   }
 
   // Base labor per indoor + per outdoor CU
-  const indHrs  = round2(lookupByTons(L.baseUnit, indoorAvg)   * Number(indoorUnits));
-  const cuHrs   = round2(lookupByTons(L.condenserUnit, tons)   * Number(condensingUnits));
+  const indHrs   = round2(lookupByTons(L.baseUnit, indoorAvg)  * Number(indoorUnits));
+  const cuHrs    = round2(lookupByTons(L.condenserUnit, tons)  * Number(condensingUnits));
   const startHrs = lookupByTons(L.startUp, tons);
-  accLabor  += round2((indHrs + cuHrs + startHrs) * TECH_RATE);
+  accLabor  += round2((indHrs + cuHrs + startHrs) * TR);
   accHours  += indHrs + cuHrs + startHrs;
 
   const misc       = round2(accMaterial * MISC_CONSUMABLES_PCT);
@@ -721,19 +769,258 @@ export const calcSplitBatch      = (rows) => batchCalc(rows, calcSplitUnit);
 export const calcWallMountBatch  = (rows) => batchCalc(rows, calcWallMountUnit);
 export const calcVRFBatch        = (rows) => batchCalc(rows, calcVRFUnit);
 
+// ─── FAN SCHEDULE — Pricing & Labor Tables ───────────────────────────────────
+// Source: Fan Schedule sheet — pricing by CFM capacity
+// lookupByTons() reused here: the "tons" parameter is CFM for fan lookups.
+//
+// API_TODO: GET /api/pricing/fans
+
+export const FAN_TYPES = [
+  'Exhaust Fan', 'Supply Fan', 'Return Fan',
+  'Kitchen Exhaust', 'Power Ventilator', 'Energy Recovery', 'Fan Coil',
+];
+
+export const FAN_MOUNT_TYPES = ['Roof', 'Wall', 'Inline', 'Cabinet', 'Plenum'];
+export const FAN_DRIVE_TYPES  = ['Direct Drive', 'Belt Drive'];
+
+// Base material cost per unit, indexed by CFM
+export const FAN_BASE_PRICE_TABLE = [
+  [0,     350],
+  [200,   480],
+  [500,   720],
+  [1000,  1050],
+  [2000,  1620],
+  [3000,  2450],
+  [5000,  3900],
+  [10000, 6800],
+];
+
+export const FAN_ACCESSORY_TABLES = {
+  disconnectSwitch: 95,    // flat
+  gfiOutlet:        75,    // flat
+  backdraftDamper: [[0,90],[200,125],[500,185],[1000,270],[2000,420],[5000,750],[10000,1200]],
+  curb:            [[0,265],[200,330],[500,440],[1000,670],[2000,1020],[5000,1850],[10000,3200]],
+  flexConnection:   65,    // flat
+  vfd:             [[0,370],[200,490],[500,740],[1000,1120],[2000,1850],[5000,3300],[10000,5800]],
+  birdScreen:      [[0,50],[200,75],[500,115],[1000,185],[2000,300],[5000,540],[10000,940]],
+  wiring:          [[0,140],[200,170],[500,210],[1000,260],[2000,330],[5000,500],[10000,750]],
+};
+
+export const FAN_LABOR_HOURS = {
+  baseInstall: [[0,3.5],[200,4.5],[500,5.5],[1000,7.5],[2000,11],[3000,15],[5000,20],[10000,30]],
+  disconnectSwitch: 1.5,
+  gfiOutlet:        1.0,
+  backdraftDamper: [[0,1],[200,1.5],[500,2],[1000,2.5],[2000,3.5],[5000,5],[10000,7]],
+  curb:            [[0,2],[200,2.5],[500,3.5],[1000,4.5],[2000,6],[5000,8],[10000,12]],
+  flexConnection:   0.75,
+  vfd:             [[0,3],[200,4],[500,5],[1000,6.5],[2000,9],[5000,13],[10000,18]],
+  birdScreen:      [[0,0.5],[200,0.75],[500,1],[1000,1.5],[2000,2.5],[5000,4],[10000,6]],
+  wiring:          [[0,2],[200,2.5],[500,3],[1000,4],[2000,5.5],[5000,8],[10000,12]],
+  startUp:         [[0,1],[200,1],[500,1.5],[1000,2],[2000,2.5],[5000,3.5],[10000,5]],
+};
+
+// ─── FAN CALCULATION ──────────────────────────────────────────────────────────
+// Equipment cost = quotedCost || unitPrice || CFM-based lookup
+// Accessories use x/xx selection identical to other unit types
+//
+// API_TODO: POST /api/estimates/fans
+
+export function calcFanUnit(unit) {
+  const {
+    cfm = 0,
+    ownerProvided = '',
+    unitPrice = 0,
+    quotedEquipCost = null,
+    accessories = {},
+  } = unit;
+
+  const c = Number(cfm) || 0;
+
+  // Equipment cost
+  const estEquipCost = round0(
+    Number(unitPrice) > 0 ? Number(unitPrice) : lookupByTons(FAN_BASE_PRICE_TABLE, c)
+  );
+  const equipCost = ownerProvided === 'xx'
+    ? 0
+    : (quotedEquipCost != null ? Number(quotedEquipCost) : estEquipCost);
+
+  let accMaterial = 0;
+  let accLabor    = 0;
+  let accHours    = 0;
+
+  const addAcc = (sel, matTable, hoursTable) => {
+    if (!sel || sel === '') return;
+    const mat = Array.isArray(matTable) ? lookupByTons(matTable, c) : (Number(matTable) || 0);
+    const hrs = Array.isArray(hoursTable) ? lookupByTons(hoursTable, c) : (Number(hoursTable) || 0);
+    accMaterial += sel === 'xx' ? 0 : round2(mat);
+    accLabor    += round2(hrs * TECH_RATE);
+    accHours    += round2(hrs);
+  };
+
+  const T = FAN_ACCESSORY_TABLES;
+  const L = FAN_LABOR_HOURS;
+
+  addAcc(accessories.disconnectSwitch, T.disconnectSwitch, L.disconnectSwitch);
+  addAcc(accessories.gfiOutlet,        T.gfiOutlet,        L.gfiOutlet);
+  addAcc(accessories.backdraftDamper,  T.backdraftDamper,  L.backdraftDamper);
+  addAcc(accessories.curb,             T.curb,             L.curb);
+  addAcc(accessories.flexConnection,   T.flexConnection,   L.flexConnection);
+  addAcc(accessories.vfd,              T.vfd,              L.vfd);
+  addAcc(accessories.birdScreen,       T.birdScreen,       L.birdScreen);
+  addAcc(accessories.wiring,           T.wiring,           L.wiring);
+
+  // Base install + start-up (always included when CFM > 0)
+  const baseHrs  = lookupByTons(L.baseInstall, c);
+  const startHrs = lookupByTons(L.startUp, c);
+  accLabor  += round2((baseHrs + startHrs) * TECH_RATE);
+  accHours  += baseHrs + startHrs;
+
+  const misc        = round2(accMaterial * MISC_CONSUMABLES_PCT);
+  const totalMat    = round2(equipCost + accMaterial + misc);
+  const totalLabor  = round2(accLabor);
+
+  return {
+    ...unit,
+    estEquipCost,
+    equipCost,
+    accMaterial:   round2(accMaterial),
+    miscCost:      misc,
+    totalMaterial: totalMat,
+    totalLabor,
+    totalHours:    round2(accHours),
+    totalCost:     round2(totalMat + totalLabor),
+  };
+}
+
+// ─── LOUVERS & DAMPERS — Pricing Tables ───────────────────────────────────────
+// Source: Louvers & FD sheet — pricing per sq ft of face area
+// Face area = (widthIn/12) × (heightIn/12)   [sq ft]
+//
+// API_TODO: GET /api/pricing/louvers-dampers
+
+export const LOUVER_DAMPER_TYPES = [
+  'OA Louver', 'Supply Louver', 'Return Louver', 'Relief Louver', 'Fixed Louver',
+  'Fire Damper', 'Smoke Damper', 'Combination FSD', 'Volume Damper', 'Backdraft Damper',
+];
+
+export const LOUVER_DAMPER_PRICING = {
+  'OA Louver':         { matPerSqFt: 15,  laborHrsPerSqFt: 0.60 },
+  'Supply Louver':     { matPerSqFt: 13,  laborHrsPerSqFt: 0.50 },
+  'Return Louver':     { matPerSqFt: 13,  laborHrsPerSqFt: 0.50 },
+  'Relief Louver':     { matPerSqFt: 11,  laborHrsPerSqFt: 0.40 },
+  'Fixed Louver':      { matPerSqFt: 10,  laborHrsPerSqFt: 0.40 },
+  'Fire Damper':       { matPerSqFt: 22,  laborHrsPerSqFt: 1.50 },
+  'Smoke Damper':      { matPerSqFt: 34,  laborHrsPerSqFt: 2.00 },
+  'Combination FSD':   { matPerSqFt: 44,  laborHrsPerSqFt: 2.50 },
+  'Volume Damper':     { matPerSqFt: 9,   laborHrsPerSqFt: 0.80 },
+  'Backdraft Damper':  { matPerSqFt: 8,   laborHrsPerSqFt: 0.60 },
+};
+
+const LD_MIN_MAT   = 65;   // minimum material per unit
+const LD_MIN_HRS   = 0.5;  // minimum labor hours per unit
+
+// Accessory costs (applied per unit before multiplying by qty)
+export const LD_ACCESSORIES = {
+  screen:   { perSqFt: 4.5,  hoursPerSqFt: 0.15, minMat: 35 },
+  actuator: { flat: 285,     flatHours: 2.0 },
+  sleeve:   { perSqFt: 6.5,  hoursPerSqFt: 0.20, minMat: 45 },
+};
+
+// ─── LOUVER / DAMPER CALCULATION ─────────────────────────────────────────────
+// Face area drives material, labor, and accessory costs.
+// Qty multiplies the per-unit total.
+//
+// API_TODO: POST /api/estimates/louvers-dampers
+
+export function calcLouverDamperUnit(unit) {
+  const {
+    type = 'OA Louver',
+    widthIn = 0,
+    heightIn = 0,
+    qty = 1,
+    ownerProvided = '',
+    unitPrice = 0,     // optional override for unit material cost
+    accessories = {},
+  } = unit;
+
+  const w = Number(widthIn) || 0;
+  const h = Number(heightIn) || 0;
+  const q = Math.max(1, Number(qty));
+  const faceArea = round2((w / 12) * (h / 12));   // sq ft
+
+  const pricing = LOUVER_DAMPER_PRICING[type] || LOUVER_DAMPER_PRICING['OA Louver'];
+
+  // Per-unit base material
+  const baseMat = Math.max(LD_MIN_MAT, faceArea * pricing.matPerSqFt);
+  const baseHrs = Math.max(LD_MIN_HRS, faceArea * pricing.laborHrsPerSqFt);
+
+  const unitMat = ownerProvided === 'xx'
+    ? 0
+    : (Number(unitPrice) > 0 ? Number(unitPrice) : baseMat);
+
+  // Per-unit accessories
+  let accMatPerUnit  = 0;
+  let accHrsPerUnit  = 0;
+
+  if (accessories.screen && accessories.screen !== '') {
+    const mat = accessories.screen === 'xx' ? 0 : Math.max(LD_ACCESSORIES.screen.minMat, faceArea * LD_ACCESSORIES.screen.perSqFt);
+    accMatPerUnit  += mat;
+    accHrsPerUnit  += faceArea * LD_ACCESSORIES.screen.hoursPerSqFt + 0.25;
+  }
+  if (accessories.actuator && accessories.actuator !== '') {
+    const mat = accessories.actuator === 'xx' ? 0 : LD_ACCESSORIES.actuator.flat;
+    accMatPerUnit  += mat;
+    accHrsPerUnit  += LD_ACCESSORIES.actuator.flatHours;
+  }
+  if (accessories.sleeve && accessories.sleeve !== '') {
+    const mat = accessories.sleeve === 'xx' ? 0 : Math.max(LD_ACCESSORIES.sleeve.minMat, faceArea * LD_ACCESSORIES.sleeve.perSqFt);
+    accMatPerUnit  += mat;
+    accHrsPerUnit  += faceArea * LD_ACCESSORIES.sleeve.hoursPerSqFt + 0.25;
+  }
+
+  // Apply qty
+  const totalUnitMat = round2((unitMat + accMatPerUnit) * q);
+  const totalHrs     = round2((baseHrs + accHrsPerUnit) * q);
+  const totalLabor   = round2(totalHrs * TECH_RATE);
+  const misc         = round2(totalUnitMat * MISC_CONSUMABLES_PCT);
+  const totalMat     = round2(totalUnitMat + misc);
+
+  return {
+    ...unit,
+    faceArea,
+    baseMat:       round2(baseMat),
+    unitMat:       round2(unitMat),
+    accMaterial:   round2(accMatPerUnit * q),
+    miscCost:      misc,
+    totalMaterial: totalMat,
+    totalLabor,
+    totalHours:    totalHrs,
+    totalCost:     round2(totalMat + totalLabor),
+  };
+}
+
+// ─── BATCH CALCULATORS (Fan + Louver/Damper) ─────────────────────────────────
+export const calcFanBatch          = (rows) => batchCalc(rows, calcFanUnit);
+export const calcLouverDamperBatch = (rows) => batchCalc(rows, calcLouverDamperUnit);
+
 // ─── GRAND SUMMARY ROLL-UP ────────────────────────────────────────────────────
 // Source: Unit Sched rows 2-11 (Unit Summary section)
 // Mirrors Summary sheet roll-up logic
 //
 // API_TODO: GET /api/estimates/{projectId}/unit-schedule/summary
 
-export function rollUpUnitSummary({ serviceTotals, packagedTotals, splitTotals, wallMountTotals, vrfTotals }) {
+export function rollUpUnitSummary({
+  serviceTotals, packagedTotals, splitTotals, wallMountTotals, vrfTotals,
+  fanTotals, louverDamperTotals,
+}) {
   const sections = [
-    { type: SYSTEM_TYPES.PACKAGED,   ...packagedTotals  },
-    { type: SYSTEM_TYPES.SPLIT,      ...splitTotals     },
-    { type: SYSTEM_TYPES.WALL_MOUNT, ...wallMountTotals },
-    { type: SYSTEM_TYPES.VRF,        ...vrfTotals       },
-    { type: 'Service of Existing',   ...serviceTotals   },
+    { type: SYSTEM_TYPES.PACKAGED,   ...packagedTotals       },
+    { type: SYSTEM_TYPES.SPLIT,      ...splitTotals          },
+    { type: SYSTEM_TYPES.WALL_MOUNT, ...wallMountTotals      },
+    { type: SYSTEM_TYPES.VRF,        ...vrfTotals            },
+    { type: 'Service of Existing',   ...serviceTotals        },
+    { type: 'Fans',                  ...fanTotals            },
+    { type: 'Louvers & Dampers',     ...louverDamperTotals   },
   ];
 
   const grand = sections.reduce(
@@ -745,5 +1032,12 @@ export function rollUpUnitSummary({ serviceTotals, packagedTotals, splitTotals, 
     { totalMaterial: 0, totalLabor: 0, totalCost: 0 }
   );
 
-  return { sections, grand: { totalMaterial: round2(grand.totalMaterial), totalLabor: round2(grand.totalLabor), totalCost: round2(grand.totalCost) } };
+  return {
+    sections,
+    grand: {
+      totalMaterial: round2(grand.totalMaterial),
+      totalLabor:    round2(grand.totalLabor),
+      totalCost:     round2(grand.totalCost),
+    },
+  };
 }

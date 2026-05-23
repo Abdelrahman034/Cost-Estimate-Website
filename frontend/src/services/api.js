@@ -69,4 +69,9 @@ export const rfqApi = {
   upsertQuote: (rfqId, supId, d) => api.put(`/suppliers/rfqs/${rfqId}/quotes/${supId}`, d),
 };
 
+// ─── ANALYTICS ───────────────────────────────────────────────────────────────
+export const analyticsApi = {
+  get: () => api.get('/analytics'),
+};
+
 export default api;

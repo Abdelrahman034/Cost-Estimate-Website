@@ -2,8 +2,15 @@
  * Shared UI primitives used by all unit row components.
  * Keeps individual row files lean and consistent.
  */
-import React, { useState } from 'react';
+import React, { useState, useContext, useEffect, createContext } from 'react';
 import { Trash2, Copy, ChevronDown, ChevronRight } from 'lucide-react';
+
+/**
+ * Context for section-level Expand All / Collapse All.
+ * SectionWrapper (in UnitScheduleModule) provides the value.
+ * AccordionPanel reads it to sync open state.
+ */
+export const SectionExpandContext = createContext({ expandCount: 0, collapseCount: 0 });
 
 export const fmt = (n) =>
   (n || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
@@ -98,8 +105,20 @@ export function ResultBadge({ label, value, variant = 'default' }) {
 }
 
 // ─── COLLAPSIBLE ACCESSORY PANEL ─────────────────────────────────────────────
+// Reads from SectionExpandContext — when the section's "Expand All" or
+// "Collapse All" button is clicked, expandCount / collapseCount increments
+// and the useEffect flips the panel's local open state accordingly.
 export function AccordionPanel({ title, badge, children }) {
   const [open, setOpen] = useState(false);
+  const { expandCount = 0, collapseCount = 0 } = useContext(SectionExpandContext);
+
+  // Sync with section-level expand / collapse commands.
+  // Using counters (not booleans) so pressing the same button twice still works.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (expandCount  > 0) setOpen(true);  }, [expandCount]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (collapseCount > 0) setOpen(false); }, [collapseCount]);
+
   return (
     <div className="border-t border-gray-100">
       <button

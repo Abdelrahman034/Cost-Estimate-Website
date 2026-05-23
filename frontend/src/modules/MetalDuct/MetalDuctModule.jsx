@@ -1,11 +1,12 @@
-import React, { useState, useCallback, useContext } from 'react';
-import { Plus, Trash2, Download, RefreshCw, Info } from 'lucide-react';
+import React, { useState, useCallback, useContext, useEffect } from 'react';
+import { Plus, Trash2, Download, RefreshCw, Info, Play } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { calculateDuctBatch } from '@utils/ductCalculations';
 import DuctRow from './DuctRow';
 import DuctTotals from './DuctTotals';
 import { SettingsContext } from '@contexts/SettingsContext';
 import { useNavigate } from 'react-router-dom';
+import { DEMO_METAL_DUCT } from '@utils/demoData';
 
 const DEFAULT_PRICES = {
   sheetMetalCostPerLb: 4.00,
@@ -96,6 +97,19 @@ export default function MetalDuctModule() {
   const [rows, setRows] = useState([newRow('row-1'), newRow('row-2'), newRow('row-3')]);
   const { prices } = useContext(SettingsContext);
   const navigate = useNavigate();
+
+  // Auto-load demo data when demo mode is active
+  useEffect(() => {
+    if (localStorage.getItem('demo_mode') === 'true') {
+      try {
+        const saved = localStorage.getItem('demo_metal_duct');
+        if (saved) {
+          const { rows: demoRows } = JSON.parse(saved);
+          if (demoRows?.length) { setRows(demoRows); }
+        }
+      } catch (_) {}
+    }
+  }, []);
 
   // Derive the column label and whether to show the "= X.XX ft" hint
   const unitLabel = prices.measureUnit ?? 'ft';
@@ -193,6 +207,26 @@ export default function MetalDuctModule() {
             <Info size={16} />
             Load Test Data
           </button>
+          {localStorage.getItem('demo_mode') === 'true' && (
+            <button
+              onClick={() => {
+                try {
+                  const saved = localStorage.getItem('demo_metal_duct');
+                  if (saved) {
+                    const { rows: demoRows } = JSON.parse(saved);
+                    setRows(demoRows);
+                    setResults(null);
+                    toast.success('Demo data loaded — click Calculate to run!');
+                    setTimeout(() => calculateFromRows(demoRows), 80);
+                  }
+                } catch (_) { toast.error('Could not load demo data'); }
+              }}
+              className="btn-secondary flex items-center gap-2 text-blue-600 border-blue-200 bg-blue-50 hover:bg-blue-100"
+            >
+              <Play size={16} />
+              Load Demo
+            </button>
+          )}
           <button
             onClick={() => navigate('/settings')}
             className="btn-secondary flex items-center gap-2"
