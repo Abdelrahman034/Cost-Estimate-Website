@@ -44,8 +44,8 @@ export default function ServiceRow({ row, result, index, onChange, onRemove, onD
         </div>
       </div>
 
-      {/* Results row — only shown when there's tonnage data */}
-      {(Number(row.coolTons) > 0 || row.systemType) && (
+      {/* Results row — only shown when tonnage has been entered */}
+      {Number(row.coolTons) > 0 && (
         <div className="flex flex-wrap gap-2 mt-2">
           <ResultBadge label="Service Matl."  value={result.serviceMaterialCost} variant="material" />
           <ResultBadge label="Service Labor"  value={result.serviceLaborCost}    variant="labor" />

@@ -18,15 +18,30 @@ const MARKET_SEED_PRICES = {
   other:   110,
 };
 
+/**
+ * DiffuserPriceSettings — Diffuser pricing configuration panel.
+ *
+ * Two save modes (same pattern as MetalDuct PriceSettings):
+ *   - Project mode  (activeProjectId + onProjectSave provided): button is "Save to Project",
+ *     disabled when no project is open.
+ *   - Standalone mode (no onProjectSave): button is "Save Settings" (original behaviour).
+ */
 export default function DiffuserPriceSettings({
   settings,
   onSettingsChange,
   onClose,
+  /** Optional — when provided, switches to project-scoped save mode */
+  activeProjectId,
+  onProjectSave,
 }) {
   const [draft, setDraft] = useState(settings);
   const [fetching, setFetching] = useState(false);
 
-  const isMarket = draft.priceMode === 'market';
+  const isMarket    = draft.priceMode === 'market';
+  const projectMode = typeof onProjectSave === 'function';
+  const saveDisabled = projectMode && !activeProjectId;
+  const saveLabel    = projectMode ? 'Save to Project' : 'Save Settings';
+  const saveTitle    = saveDisabled ? 'Open a project to save diffuser settings.' : undefined;
 
   const setMode = (mode) => {
     setDraft((prev) => ({
@@ -60,9 +75,13 @@ export default function DiffuserPriceSettings({
   };
 
   const handleSave = () => {
-    onSettingsChange(draft);
+    if (projectMode) {
+      onProjectSave(draft);
+    } else {
+      onSettingsChange(draft);
+      toast.success('Diffuser settings saved');
+    }
     onClose();
-    toast.success('Diffuser settings saved');
   };
 
   return (
@@ -73,6 +92,13 @@ export default function DiffuserPriceSettings({
           <X size={18} />
         </button>
       </div>
+
+      {/* Project-mode hint */}
+      {projectMode && !activeProjectId && (
+        <div className="mb-4 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
+          Open a project to save diffuser settings to that project only.
+        </div>
+      )}
 
       {/* ── Price Mode Toggle ── */}
       <div className="mb-5">

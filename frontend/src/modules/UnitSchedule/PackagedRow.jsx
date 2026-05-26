@@ -88,6 +88,24 @@ export default function PackagedRow({ row, result, index, onChange, onRemove, on
             <NumInput value={row.accessories.sensorQty} onChange={acc('sensorQty')} placeholder="0" />
           </div>
         </AccessoryGrid>
+
+        {/* Misc & Consumables % — applied to total material */}
+        <div className="flex items-center gap-2 mt-3 pt-2 border-t border-gray-100">
+          <span className="text-xs text-gray-500 font-medium">Misc &amp; Consumables</span>
+          <div className="w-16">
+            <NumInput
+              value={row.miscPct ?? 3}
+              onChange={(v) => onChange(row.id, 'miscPct', v)}
+              placeholder="3"
+            />
+          </div>
+          <span className="text-xs text-gray-400">% of total material</span>
+          {hasTons && result.miscCost > 0 && (
+            <span className="text-xs text-gray-500 ml-2">
+              = {result.miscCost.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}
+            </span>
+          )}
+        </div>
       </AccordionPanel>
 
       {/* Results */}
@@ -95,7 +113,7 @@ export default function PackagedRow({ row, result, index, onChange, onRemove, on
         <div className="flex flex-wrap gap-2 px-1 pb-1">
           <ResultBadge label="Equip. Cost"    value={result.equipCost}     variant="default" />
           <ResultBadge label="Accessories"    value={result.accMaterial}   variant="material" />
-          <ResultBadge label="Misc (3%)"      value={result.miscCost}      variant="default" />
+          <ResultBadge label={`Misc (${result.miscPct ?? 3}%)`} value={result.miscCost} variant="default" />
           <ResultBadge label="Total Material" value={result.totalMaterial} variant="material" />
           <ResultBadge label="Total Labor"    value={result.totalLabor}    variant="labor" />
           <ResultBadge label="Unit Total"     value={result.totalCost}     variant="total" />

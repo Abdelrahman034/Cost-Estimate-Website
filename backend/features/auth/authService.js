@@ -22,9 +22,14 @@ function signAccessToken(payload) {
 }
 
 function signRefreshToken(payload) {
-  return jwt.sign(payload, process.env.JWT_REFRESH_SECRET, {
-    expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
-  });
+  // jti (JWT ID) makes every token cryptographically unique even when two
+  // tokens are issued within the same second for the same user.
+  const { randomBytes } = require('crypto');
+  return jwt.sign(
+    { ...payload, jti: randomBytes(16).toString('hex') },
+    process.env.JWT_REFRESH_SECRET,
+    { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d' },
+  );
 }
 
 function buildTokenPayload(user) {
@@ -186,4 +191,86 @@ async function getMe(userId) {
   return user;
 }
 
-module.exports = { register, login, refreshTokens, logout, getMe };
+// ── Validate Invite Token ─────────────────────────────────────────────────────
+// Returns invite + company info so the frontend can pre-fill the form.
+
+async function getInvite(token) {
+  const invite = await prisma.invite.findUnique({
+    where:   { token },
+    include: { company: { select: { name: true } } },
+  });
+  if (!invite) {
+    const e = new Error('Invite not found.'); e.status = 404; throw e;
+  }
+  if (invite.status !== 'PENDING') {
+    const e = new Error('This invite has already been used.'); e.status = 410; throw e;
+  }
+  if (new Date() > invite.expiresAt) {
+    const e = new Error('This invite has expired. Ask your admin to resend it.'); e.status = 410; throw e;
+  }
+  return {
+    email:       invite.email,
+    role:        invite.role,
+    companyName: invite.company.name,
+    expiresAt:   invite.expiresAt,
+  };
+}
+
+// ── Accept Invite ─────────────────────────────────────────────────────────────
+// Creates the user account, marks the invite ACCEPTED, returns auth tokens.
+
+async function acceptInvite({ token, firstName, lastName, password }) {
+  const invite = await prisma.invite.findUnique({
+    where:   { token },
+    include: { company: { select: { id: true, name: true } } },
+  });
+  if (!invite) {
+    const e = new Error('Invite not found.'); e.status = 404; throw e;
+  }
+  if (invite.status !== 'PENDING') {
+    const e = new Error('This invite has already been used.'); e.status = 410; throw e;
+  }
+  if (new Date() > invite.expiresAt) {
+    const e = new Error('This invite has expired. Ask your admin to resend it.'); e.status = 410; throw e;
+  }
+
+  const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+
+  // Create the user and mark the invite ACCEPTED in one transaction
+  const [user] = await prisma.$transaction([
+    prisma.user.create({
+      data: {
+        companyId:    invite.companyId,
+        email:        invite.email,
+        firstName,
+        lastName,
+        role:         invite.role,
+        passwordHash,
+      },
+    }),
+    prisma.invite.update({
+      where: { id: invite.id },
+      data:  { status: 'ACCEPTED', acceptedAt: new Date() },
+    }),
+  ]);
+
+  const payload      = buildTokenPayload(user);
+  const accessToken  = signAccessToken(payload);
+  const refreshToken = signRefreshToken(payload);
+
+  await prisma.refreshToken.create({
+    data: { userId: user.id, token: refreshToken, expiresAt: new Date(Date.now() + REFRESH_TTL_MS) },
+  });
+
+  return {
+    accessToken,
+    refreshToken,
+    user: {
+      id: user.id, email: user.email, firstName: user.firstName,
+      lastName: user.lastName, role: user.role, companyId: user.companyId,
+      company: invite.company.name,
+    },
+  };
+}
+
+module.exports = { register, login, refreshTokens, logout, getMe, getInvite, acceptInvite };

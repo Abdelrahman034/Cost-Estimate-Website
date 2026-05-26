@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useContext } from 'react';
 import { Plus, Trash2, Download, Settings2, Play } from 'lucide-react';
 import { DEMO_DIFFUSER } from '@utils/demoData';
 import toast from 'react-hot-toast';
@@ -6,6 +6,9 @@ import { calculateDiffuserBatch } from '@utils/diffuserCalculations';
 import DiffuserRow from './DiffuserRow';
 import DiffuserTotals from './DiffuserTotals';
 import DiffuserPriceSettings from './DiffuserPriceSettings';
+import { useEstimate } from '@hooks/useEstimate';
+import EstimateProjectBanner from '@components/EstimateProjectBanner';
+import { SettingsContext } from '@contexts/SettingsContext';
 
 // ─── Default per-session settings ────────────────────────────────────────────
 // These live locally in the module (not in SettingsContext) because the diffuser
@@ -44,13 +47,33 @@ function buildCalcSettings(settings) {
 
 // ─── Main Module ──────────────────────────────────────────────────────────────
 export default function DiffuserModule() {
+  const { pricingConfig } = useContext(SettingsContext);
+
   const [rows, setRows]               = useState([newRow(), newRow(), newRow()]);
   const [results, setResults]         = useState(null);
-  const [settings, setSettings]       = useState(DEFAULT_SETTINGS);
+  // grdRate (grille/diffuser installer $/hr) mirrors the duct labor rate
+  const [settings, setSettings]       = useState(() => ({
+    ...DEFAULT_SETTINGS,
+    grdRate: pricingConfig.rateDuct ?? DEFAULT_SETTINGS.grdRate,
+  }));
   const [showSettings, setShowSettings] = useState(false);
+  const { projectId, projectName, loadEstimate, saveEstimate, saving, lastSaved, saveError } = useEstimate('DIFFUSER_SCHEDULE');
 
-  // Auto-load demo rows on mount when demo mode is active
+  // Sync grdRate when project settings change
   useEffect(() => {
+    setSettings(prev => ({ ...prev, grdRate: pricingConfig.rateDuct ?? DEFAULT_SETTINGS.grdRate }));
+  }, [pricingConfig.rateDuct]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load from DB if in project context, otherwise fall back to demo mode
+  useEffect(() => {
+    if (projectId) {
+      loadEstimate().then(est => {
+        if (est?.rowsJson && Array.isArray(est.rowsJson) && est.rowsJson.length > 0) {
+          setRows(est.rowsJson);
+        }
+      });
+      return;
+    }
     if (localStorage.getItem('demo_mode') === 'true') {
       try {
         const saved = localStorage.getItem('demo_diffuser');
@@ -60,7 +83,7 @@ export default function DiffuserModule() {
         }
       } catch (_) {}
     }
-  }, []);
+  }, [loadEstimate, projectId]);
 
   // ── Calculate ───────────────────────────────────────────────────────────────
   const calculate = useCallback(() => {
@@ -82,6 +105,14 @@ export default function DiffuserModule() {
     const batch = calculateDiffuserBatch(enrichedRows, calcSettings);
     setResults(batch);
     toast.success(`Calculated ${filled.length} diffuser line(s)`);
+    if (projectId) {
+      saveEstimate({
+        rowsJson:      rows,
+        totalMaterial: batch.totals.totalMat,
+        totalLabor:    batch.totals.totalLabor,
+        totalCost:     batch.totals.total,
+      });
+    }
   }, [rows, settings]);
 
   // ── Row handlers ────────────────────────────────────────────────────────────
@@ -131,7 +162,10 @@ export default function DiffuserModule() {
 
   return (
     <div className="max-w-full">
-
+      <EstimateProjectBanner
+        projectId={projectId} projectName={projectName}
+        saving={saving} lastSaved={lastSaved} saveError={saveError}
+      />
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between mb-6">
         <div>

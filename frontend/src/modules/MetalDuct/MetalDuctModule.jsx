@@ -1,12 +1,14 @@
 import React, { useState, useCallback, useContext, useEffect } from 'react';
-import { Plus, Trash2, Download, RefreshCw, Info, Play } from 'lucide-react';
+import { Plus, Trash2, Download, Info, Play, Settings2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { calculateDuctBatch } from '@utils/ductCalculations';
 import DuctRow from './DuctRow';
 import DuctTotals from './DuctTotals';
+import PriceSettings from './PriceSettings';
 import { SettingsContext } from '@contexts/SettingsContext';
-import { useNavigate } from 'react-router-dom';
 import { DEMO_METAL_DUCT } from '@utils/demoData';
+import { useEstimate } from '@hooks/useEstimate';
+import EstimateProjectBanner from '@components/EstimateProjectBanner';
 
 const DEFAULT_PRICES = {
   sheetMetalCostPerLb: 4.00,
@@ -95,24 +97,42 @@ const TEST_ROWS = [
 
 export default function MetalDuctModule() {
   const [rows, setRows] = useState([newRow('row-1'), newRow('row-2'), newRow('row-3')]);
-  const { prices } = useContext(SettingsContext);
-  const navigate = useNavigate();
+  const [showSettings, setShowSettings] = useState(false);
+  const {
+    prices, setPrices,
+    overhead, setOverhead,
+    pricingConfig, savePricingConfig,
+    activeProjectId,
+  } = useContext(SettingsContext);
 
-  // Auto-load demo data when demo mode is active
+  // Project overrides win over localStorage for calculations
+  const effectivePrices = { ...prices, ...(pricingConfig?.ductPrices ?? {}) };
+
+  const { projectId, projectName, loadEstimate, saveEstimate, saving, lastSaved, saveError } = useEstimate('METAL_DUCT');
+
+  // Load from DB if in project context, otherwise fall back to demo mode
   useEffect(() => {
+    if (projectId) {
+      loadEstimate().then(est => {
+        if (est?.rowsJson && Array.isArray(est.rowsJson) && est.rowsJson.length > 0) {
+          setRows(est.rowsJson);
+        }
+      });
+      return;
+    }
     if (localStorage.getItem('demo_mode') === 'true') {
       try {
         const saved = localStorage.getItem('demo_metal_duct');
         if (saved) {
           const { rows: demoRows } = JSON.parse(saved);
-          if (demoRows?.length) { setRows(demoRows); }
+          if (demoRows?.length) setRows(demoRows);
         }
       } catch (_) {}
     }
-  }, []);
+  }, [loadEstimate, projectId]);
 
   // Derive the column label and whether to show the "= X.XX ft" hint
-  const unitLabel = prices.measureUnit ?? 'ft';
+  const unitLabel = effectivePrices.measureUnit ?? 'ft';
   const UNIT_TO_FT = { ft: 1.0, in: 1 / 12, m: 1 / 0.3048, cm: 1 / 30.48, mm: 1 / 304.8 };
   const scaleFactor = UNIT_TO_FT[unitLabel] ?? 1.0;
   const showScaleHint = unitLabel !== 'ft';
@@ -125,13 +145,13 @@ export default function MetalDuctModule() {
       return null;
     }
 
-    const result = calculateDuctBatch(validRows, prices);
+    const result = calculateDuctBatch(validRows, effectivePrices);
     // Profit is intentionally not applied here. Profit/markup will be applied globally
     // in a separate page so this module only returns direct costs.
     setResults(result);
     toast.success(`Calculated ${validRows.length} duct runs (profit excluded)`);
     return result;
-  }, [prices]);
+  }, [effectivePrices]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleRowChange = useCallback((id, field, value) => {
     setRows((prev) => prev.map((r) => {
@@ -156,7 +176,15 @@ export default function MetalDuctModule() {
 
   const calculate = () => {
     try {
-      calculateFromRows(rows);
+      const result = calculateFromRows(rows);
+      if (result && projectId) {
+        saveEstimate({
+          rowsJson:      rows,
+          totalMaterial: result.totals.materialCost,
+          totalLabor:    result.totals.laborCost,
+          totalCost:     result.totals.totalCost,
+        });
+      }
     } catch (err) {
       toast.error('Calculation error: ' + err.message);
     }
@@ -191,6 +219,10 @@ export default function MetalDuctModule() {
 
   return (
     <div className="max-w-full">
+      <EstimateProjectBanner
+        projectId={projectId} projectName={projectName}
+        saving={saving} lastSaved={lastSaved} saveError={saveError}
+      />
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -228,11 +260,11 @@ export default function MetalDuctModule() {
             </button>
           )}
           <button
-            onClick={() => navigate('/settings')}
-            className="btn-secondary flex items-center gap-2"
+            onClick={() => setShowSettings(v => !v)}
+            className={`btn-secondary flex items-center gap-2 ${showSettings ? 'ring-2 ring-blue-400' : ''}`}
           >
-            <RefreshCw size={16} />
-            Prices & Settings
+            <Settings2 size={16} />
+            Duct Pricing
           </button>
           {results && (
             <button onClick={exportCSV} className="btn-secondary flex items-center gap-2">
@@ -246,8 +278,25 @@ export default function MetalDuctModule() {
         </div>
       </div>
 
-      {/* Price Settings Panel */}
-      {/* Settings are now global — open the Settings page to edit prices and presets */}
+      {/* Inline Duct Pricing Panel — project-scoped when a project is open */}
+      {showSettings && (
+        <PriceSettings
+          prices={effectivePrices}
+          overhead={overhead}
+          onPricesChange={setPrices}
+          onOverheadChange={setOverhead}
+          onClose={() => setShowSettings(false)}
+          activeProjectId={activeProjectId}
+          onProjectSave={async (draft) => {
+            try {
+              await savePricingConfig({ ductPrices: draft });
+              toast.success('Duct pricing saved to project');
+            } catch {
+              toast.error('Could not save duct pricing');
+            }
+          }}
+        />
+      )}
 
       {/* Table */}
       <div className="card p-0 overflow-hidden">

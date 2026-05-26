@@ -166,7 +166,7 @@ function AccessoryRow({ acc, sectionKey, overrides, onSet, onReset }) {
 
 // ── Main component ───────────────────────────────────────────────────────────
 
-export default function AccessoryPriceSettings({ overrides, onSet, onReset, onResetAll, onClose }) {
+export default function AccessoryPriceSettings({ overrides, onSet, onReset, onResetAll, onClose = null, standalone = false }) {
   const [activeTab, setActiveTab] = useState('packaged');
 
   const section = SECTIONS.find(s => s.key === activeTab);
@@ -176,12 +176,16 @@ export default function AccessoryPriceSettings({ overrides, onSet, onReset, onRe
   const overrideCount = (key) =>
     Object.values(overrides[key] || {}).filter(v => v != null && v !== '').length;
 
+  const wrapperCls = standalone
+    ? ''   // Settings page: no extra card wrapper, rendered inside a card already
+    : 'card p-4 mb-4 border-amber-200 bg-amber-50/30';
+
   return (
-    <div className="card p-4 mb-4 border-amber-200 bg-amber-50/30">
+    <div className={wrapperCls}>
       {/* Panel header */}
       <div className="flex items-center justify-between mb-3">
         <div>
-          <h3 className="font-semibold text-gray-700 text-sm">Accessory Material Prices</h3>
+          {!standalone && <h3 className="font-semibold text-gray-700 text-sm">Accessory Material Prices</h3>}
           <p className="text-xs text-gray-400 mt-0.5">
             Override any accessory price (applies as a flat rate for all tonnages).
             Leave blank to use the default tonnage-based table value.
@@ -194,9 +198,11 @@ export default function AccessoryPriceSettings({ overrides, onSet, onReset, onRe
           >
             <RotateCcw size={11} /> Reset all
           </button>
-          <button onClick={onClose} className="text-xs text-gray-400 hover:text-gray-600 ml-2">
-            Close
-          </button>
+          {onClose && (
+            <button onClick={onClose} className="text-xs text-gray-400 hover:text-gray-600 ml-2">
+              Close
+            </button>
+          )}
         </div>
       </div>
 

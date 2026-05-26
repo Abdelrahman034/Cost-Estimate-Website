@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useContext } from 'react';
 import { Plus, Trash2, Download, Settings2, Play } from 'lucide-react';
 import { DEMO_FAN_SCHEDULE } from '@utils/demoData';
 import toast from 'react-hot-toast';
@@ -13,13 +13,17 @@ import { saveModuleTotals } from '@utils/projectTotals';
 import FanRow from './FanRow';
 import FanTotals from './FanTotals';
 import FanPriceSettings from './FanPriceSettings';
+import { useEstimate } from '@hooks/useEstimate';
+import EstimateProjectBanner from '@components/EstimateProjectBanner';
+import { SettingsContext } from '@contexts/SettingsContext';
 
 // ─── Default settings (mirror Excel config cells) ─────────────────────────────
+// laborRate is seeded from pricingConfig at runtime so it reflects company/project settings.
 const DEFAULT_SETTINGS = {
   roofPenCost: DEFAULT_ROOF_PEN_COST,   // $T$5 = $100
   wallPenCost: DEFAULT_WALL_PEN_COST,   // $T$7 = $200
   miscPct:     DEFAULT_MISC_PCT,         // $M$3 = 20%
-  laborRate:   DEFAULT_LABOR_RATE,       // $AC$3 = $25/hr
+  laborRate:   DEFAULT_LABOR_RATE,       // overridden at init from pricingConfig.rateFan
 };
 
 // ─── Row factory ───────────────────────────────────────────────────────────────
@@ -40,13 +44,33 @@ const newRow = () => ({
 
 // ─── Main Module ───────────────────────────────────────────────────────────────
 export default function FanScheduleModule() {
+  const { pricingConfig } = useContext(SettingsContext);
+
   const [rows, setRows]               = useState([newRow(), newRow(), newRow()]);
   const [results, setResults]         = useState(null);
-  const [settings, setSettings]       = useState(DEFAULT_SETTINGS);
+  // Init laborRate from pricingConfig so it picks up project overrides
+  const [settings, setSettings]       = useState(() => ({
+    ...DEFAULT_SETTINGS,
+    laborRate: pricingConfig.rateFan ?? DEFAULT_LABOR_RATE,
+  }));
   const [showSettings, setShowSettings] = useState(false);
+  const { projectId, projectName, loadEstimate, saveEstimate, saving, lastSaved, saveError } = useEstimate('FAN_SCHEDULE');
 
-  // Auto-load demo rows on mount when demo mode is active
+  // Sync laborRate when project settings change
   useEffect(() => {
+    setSettings(prev => ({ ...prev, laborRate: pricingConfig.rateFan ?? DEFAULT_LABOR_RATE }));
+  }, [pricingConfig.rateFan]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load from DB if in project context, otherwise fall back to demo mode
+  useEffect(() => {
+    if (projectId) {
+      loadEstimate().then(est => {
+        if (est?.rowsJson && Array.isArray(est.rowsJson) && est.rowsJson.length > 0) {
+          setRows(est.rowsJson);
+        }
+      });
+      return;
+    }
     if (localStorage.getItem('demo_mode') === 'true') {
       try {
         const saved = localStorage.getItem('demo_fan_schedule');
@@ -56,7 +80,7 @@ export default function FanScheduleModule() {
         }
       } catch (_) {}
     }
-  }, []);
+  }, [loadEstimate, projectId]);
 
   // ── Auto-push totals to Dashboard whenever results change ──────────────────
   useEffect(() => {
@@ -79,7 +103,15 @@ export default function FanScheduleModule() {
     const batch = calculateFanBatch(rows, settings);
     setResults(batch);
     toast.success(`Calculated ${filled.length} fan(s)`);
-  }, [rows, settings]);
+    if (projectId) {
+      saveEstimate({
+        rowsJson:      rows,
+        totalMaterial: batch.totals.totalMaterial,
+        totalLabor:    batch.totals.totalLaborFinal,
+        totalCost:     batch.totals.totalMatPlusLab,
+      });
+    }
+  }, [rows, settings, projectId, saveEstimate]);
 
   // ── Row handlers ───────────────────────────────────────────────────────────
   const handleRowChange = useCallback((id, field, value) => {
@@ -164,7 +196,10 @@ export default function FanScheduleModule() {
 
   return (
     <div className="max-w-full">
-
+      <EstimateProjectBanner
+        projectId={projectId} projectName={projectName}
+        saving={saving} lastSaved={lastSaved} saveError={saveError}
+      />
       {/* ── Header ──────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between mb-6">
         <div>

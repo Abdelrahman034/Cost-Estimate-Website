@@ -66,4 +66,26 @@ async function getMe(req, res) {
   }
 }
 
-module.exports = { register, login, refresh, logout, getMe };
+async function getInvite(req, res) {
+  try {
+    const info = await authService.getInvite(req.params.token);
+    return res.json(info);
+  } catch (err) {
+    return res.status(err.status || 500).json({ error: err.message });
+  }
+}
+
+async function acceptInvite(req, res) {
+  try {
+    const result = await authService.acceptInvite(req.body);
+    return res.status(201).json(result);
+  } catch (err) {
+    if (err.code === 'P2002') {
+      return res.status(409).json({ error: 'An account with this email already exists.' });
+    }
+    console.error('[auth/accept-invite]', err);
+    return res.status(err.status || 500).json({ error: err.message || 'Could not accept invite.' });
+  }
+}
+
+module.exports = { register, login, refresh, logout, getMe, getInvite, acceptInvite };

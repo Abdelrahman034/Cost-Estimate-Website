@@ -43,6 +43,59 @@ export const LD_TECH_RATE         = 25;  // Louvers & dampers
 
 export const MISC_CONSUMABLES_PCT = 0.03; // 3% of accessories
 
+// ─── COPPER LINE-SET LABOR RATES ─────────────────────────────────────────────
+// Hours per linear foot to install refrigerant copper (both lines — braze, hang,
+// insulate, pressure-test).  Calibrated against the legacy lump-sum table:
+//   5-ton  (3/8" liq + 7/8"  suc, 50 ft) → (0.17+0.31)×50 = 24 hrs  ✓
+//   10-ton (1/2" + 1-1/8",   50 ft)       → (0.20+0.40)×50 = 30 hrs  ✓
+//   20-ton (5/8" + 1-3/8",   65 ft)       → (0.23+0.42)×65 = 42 hrs  ✓
+//   50-ton (7/8" + 1-5/8",   80 ft)       → (0.31+0.47)×80 = 62 hrs  ~60
+//   75-ton (1-1/8" + 2-1/8", 90 ft)       → (0.40+0.93)×90 = 120 hrs ✓
+const COPPER_LABOR_PER_FT = {
+  '3/8"':   0.17,
+  '1/2"':   0.20,
+  '5/8"':   0.23,
+  '3/4"':   0.26,
+  '7/8"':   0.31,
+  '1-1/8"': 0.40,
+  '1-3/8"': 0.42,
+  '1-5/8"': 0.47,
+  '2-1/8"': 0.93,
+  '2-5/8"': 1.20,
+};
+
+// Labor scales by the same weight ratio used for material pricing in the engine:
+//   K ≈ 40% heavier than L on average (harder to bend/braze/handle)
+//   M ≈ 13% lighter than L (thin-wall, easier to work)
+// Matches copperPricingEngine.js calcSplitCost/calcAHUCost weightRatioToL values.
+const COPPER_TYPE_LABOR_FACTOR = { K: 1.40, L: 1.0, M: 0.87 };
+
+// VRF blended labor hr/ft — lower than split because VRF branch lines are
+// smaller and use compact manifold connections.
+const VRF_COPPER_LABOR_PER_FT = {
+  0: 0.045, 5: 0.050, 10: 0.060, 20: 0.070, 50: 0.080, 75: 0.100,
+};
+
+// ─── REFRIGERANT SUPPLEMENTAL CHARGE ─────────────────────────────────────────
+// Automatic charge based on unit tonnage × total copper run length.
+// Formula: cylinderPrice × tonFactor × lengthFactor
+// Derived so the table below is reproduced exactly at the default cylinder price.
+// Update refrigCylinderPrice in Settings → Copper to shift all rows at once.
+//
+//   Size | <50 ft | <100 ft | ≥100 ft
+//      0 | $280   |  $350   |  $438
+//      5 | $280   |  $350   |  $438
+//     10 | $420   |  $525   |  $656
+//     20 | $630   |  $788   |  $984
+//     50 | $1,225 | $1,531  | $1,914
+//     75 | $2,450 | $3,063  | $3,828
+
+export const REFRIG_CYLINDER_PRICE = 280; // base price at 0-5 ton, <50 ft
+
+const REFRIG_TON_FACTOR = {
+  0: 1.000, 5: 1.000, 10: 1.500, 20: 2.250, 50: 4.375, 75: 8.750,
+};
+
 // ─── SERVICE OF EXISTING UNITS — Pricing Tables ──────────────────────────────
 // Source: Unit Sched rows 19-22 (cols I-X)
 // Each entry: { tons, material: {byType}, labor: {byType} }
@@ -242,6 +295,56 @@ export const VRF_LABOR_HOURS = {
   startUp:       [[0,5],[5,5],[10,6],[20,8],[50,14],[75,28]],
 };
 
+// ─── COPPER LABOR HELPERS ────────────────────────────────────────────────────
+
+/**
+ * Compute copper installation labor hours from a /api/copper-pricing result.
+ * Covers all four cases: manual split/wall/AHU, bracket split/wall/AHU,
+ * VRF bracket (has totalFt), and VRF manual (has avgLengthFt without liquidLine).
+ */
+function calcCopperLaborHours(copperResult, copperType = 'L') {
+  if (!copperResult) return 0;
+  const typeFactor = COPPER_TYPE_LABOR_FACTOR[copperType] ?? 1.0;
+  const det = copperResult.details;
+
+  // Manual mode — split/wall/AHU: liquidLine + suctionLine + avgLengthFt
+  if (copperResult.liquidLine?.size && copperResult.suctionLine?.size && Number(copperResult.avgLengthFt) > 0) {
+    const lenFt  = Number(copperResult.avgLengthFt);
+    const liqHrs = (COPPER_LABOR_PER_FT[copperResult.liquidLine.size]  ?? 0.20) * lenFt;
+    const sucHrs = (COPPER_LABOR_PER_FT[copperResult.suctionLine.size] ?? 0.35) * lenFt;
+    return round2((liqHrs + sucHrs) * typeFactor);
+  }
+
+  // Bracket mode — split/wall/AHU: details has avgLengthFt + pipe size strings
+  if (Number(det?.avgLengthFt) > 0 && det?.assumedLiquidLine && det?.assumedSuctionLine) {
+    const lenFt  = Number(det.avgLengthFt);
+    const liqHrs = (COPPER_LABOR_PER_FT[det.assumedLiquidLine]  ?? 0.20) * lenFt;
+    const sucHrs = (COPPER_LABOR_PER_FT[det.assumedSuctionLine] ?? 0.35) * lenFt;
+    return round2((liqHrs + sucHrs) * typeFactor);
+  }
+
+  // VRF bracket mode: result has totalFt
+  if (Number(copperResult.totalFt) > 0) {
+    const ton = Number(det?.tonnage ?? 5);
+    return round2(vrfCopperLaborPerFt(ton) * Number(copperResult.totalFt) * typeFactor);
+  }
+
+  // VRF manual mode: avgLengthFt is the total run (per-unit × idu already multiplied)
+  if (Number(copperResult.avgLengthFt) > 0) {
+    const ton = Number(det?.tonnage ?? 5);
+    return round2(vrfCopperLaborPerFt(ton) * Number(copperResult.avgLengthFt) * typeFactor);
+  }
+
+  return 0;
+}
+
+function vrfCopperLaborPerFt(ton) {
+  const keys = Object.keys(VRF_COPPER_LABOR_PER_FT).map(Number).sort((a, b) => a - b);
+  let match = keys[0];
+  for (const k of keys) { if (ton >= k) match = k; else break; }
+  return VRF_COPPER_LABOR_PER_FT[match];
+}
+
 // ─── INTERPOLATION HELPERS ────────────────────────────────────────────────────
 // Mirrors the Excel INDEX/MATCH with interpolation between lookup breakpoints
 // This is the web equivalent of: =INDEX(table, MATCH(tons, sizes, 1))
@@ -276,6 +379,18 @@ export function lookupByTons(table, tons) {
 function round2(n) { return Math.round(n * 100) / 100; }
 function round0(n) { return Math.round(n); }
 
+function calcRefrigCharge(tons, totalLengthFt, cylinderPrice = REFRIG_CYLINDER_PRICE) {
+  if (!totalLengthFt || totalLengthFt <= 0) return 0;
+  const t   = Number(tons) || 0;
+  const keys = [0, 5, 10, 20, 50, 75];
+  let tMatch = keys[0];
+  for (const k of keys) { if (t >= k) tMatch = k; else break; }
+  const lenFactor = totalLengthFt < 50  ? 1.0
+                  : totalLengthFt < 100 ? 1.25
+                  :                       1.5625;
+  return round2((cylinderPrice ?? REFRIG_CYLINDER_PRICE) * REFRIG_TON_FACTOR[tMatch] * lenFactor);
+}
+
 // ─── SELECTION LOGIC ("x/xx") ─────────────────────────────────────────────────
 // "x"  = We supply & install
 // "xx" = Owner/GC provides, we install only (labor only, no material cost)
@@ -302,30 +417,44 @@ function accessoryCost(selection, matCost, laborHours, flatLaborFlag = false) {
 export function calcServiceUnit(unit) {
   const { systemType = '', coolTons = 0, pmMaterials = 0, pmLabor = 0 } = unit;
   const typeKey = SYSTEM_TYPE_KEY_MAP[systemType] || 'packaged';
+  const tonNum  = Number(coolTons) || 0;
+  const pmMat   = round2(Number(pmMaterials));
+  const pmLab   = round2(Number(pmLabor));
 
-  const matRow = SERVICE_PRICING_TABLE;
-  const tonNum = Number(coolTons) || 0;
+  // No tonnage entered → blank row.  Only PM add-ons count (if any).
+  if (tonNum <= 0) {
+    return {
+      ...unit,
+      serviceMaterialCost: 0,
+      serviceLaborCost:    0,
+      pmMaterials:  pmMat,
+      pmLabor:      pmLab,
+      totalMaterial: pmMat,
+      totalLabor:    pmLab,
+      totalCost:     round2(pmMat + pmLab),
+    };
+  }
 
-  // MATCH lookup (largest breakpoint <= tons)
-  let matCost  = 0;
+  // MATCH lookup — largest breakpoint whose tons value is <= entered tons
+  let matCost   = 0;
   let laborCost = 0;
-  for (let i = matRow.length - 1; i >= 0; i--) {
-    if (tonNum >= matRow[i].tons) {
-      matCost   = matRow[i].material[typeKey] || 0;
-      laborCost = matRow[i].labor[typeKey]    || 0;
+  for (let i = SERVICE_PRICING_TABLE.length - 1; i >= 0; i--) {
+    if (tonNum >= SERVICE_PRICING_TABLE[i].tons) {
+      matCost   = SERVICE_PRICING_TABLE[i].material[typeKey] || 0;
+      laborCost = SERVICE_PRICING_TABLE[i].labor[typeKey]    || 0;
       break;
     }
   }
 
-  const totalMaterial = round2(matCost + Number(pmMaterials));
-  const totalLabor    = round2(laborCost + Number(pmLabor));
+  const totalMaterial = round2(matCost + pmMat);
+  const totalLabor    = round2(laborCost + pmLab);
 
   return {
     ...unit,
     serviceMaterialCost: round2(matCost),
     serviceLaborCost:    round2(laborCost),
-    pmMaterials:         round2(Number(pmMaterials)),
-    pmLabor:             round2(Number(pmLabor)),
+    pmMaterials:  pmMat,
+    pmLabor:      pmLab,
     totalMaterial,
     totalLabor,
     totalCost: round2(totalMaterial + totalLabor),
@@ -354,6 +483,16 @@ export function calcPackagedUnit(unit) {
   } = unit;
 
   const tons = Number(coolTons) || 0;
+
+  // Blank row — no tonnage entered, return zeros
+  if (tons <= 0) {
+    return {
+      ...unit,
+      estEquipCost: 0, equipCost: 0,
+      accMaterial: 0, miscPct: Number(unit.miscPct) || 3, miscCost: 0,
+      totalMaterial: 0, totalLabor: 0, totalHours: 0, totalCost: 0,
+    };
+  }
 
   // Equipment cost
   const estEquipCost = round0(tons * Number(baseCostPerTon));
@@ -429,8 +568,10 @@ export function calcPackagedUnit(unit) {
     accHours    += statHrs;
   }
 
-  const misc         = round2(accMaterial * MISC_CONSUMABLES_PCT);
-  const totalMat     = round2(equipCost + accMaterial + misc);
+  const miscRate     = (Number(unit.miscPct) || 3) / 100;
+  const preMisc      = round2(equipCost + accMaterial);
+  const misc         = round2(preMisc * miscRate);
+  const totalMat     = round2(preMisc + misc);
   const totalLabor   = round2(accLabor);
   const totalCost    = round2(totalMat + totalLabor);
 
@@ -438,11 +579,12 @@ export function calcPackagedUnit(unit) {
     ...unit,
     estEquipCost,
     equipCost,
-    accMaterial:  round2(accMaterial),
-    miscCost:     misc,
+    accMaterial:   round2(accMaterial),
+    miscPct:       Number(unit.miscPct) || 3,
+    miscCost:      misc,
     totalMaterial: totalMat,
     totalLabor,
-    totalHours: round2(accHours),
+    totalHours:    round2(accHours),
     totalCost,
   };
 }
@@ -451,6 +593,12 @@ export function calcPackagedUnit(unit) {
 // Source: Unit Sched rows 84-111
 //
 // API_TODO: POST /api/estimates/split-units
+//
+// Copper pricing integration:
+//   If the row has a `copperPricingResult` (set by the CopperInputPanel after
+//   calling POST /api/copper-pricing), the LME-adjusted material replaces the
+//   static table price for cuLine* / cuRoll* accessories.
+//   Labor hours are unchanged — only the material cost is overridden.
 
 export function calcSplitUnit(unit) {
   const {
@@ -461,9 +609,23 @@ export function calcSplitUnit(unit) {
     accessories = {},
     techRate = SPLIT_TECH_RATE,  // allow override from settings
     priceOverrides = {},         // user-editable price overrides
+    copperPricingResult = null,  // from POST /api/copper-pricing (live LME calc)
+    copper = {},                 // per-row copper sub-object (for copperType)
   } = unit;
 
   const tons = Number(coolTons) || 0;
+
+  // Blank row — no tonnage entered, return zeros so the summary stays clean
+  if (tons <= 0) {
+    return {
+      ...unit,
+      estEquipCost: 0, equipCost: 0,
+      cuLineMaterial: 0, refrigCost: 0, cuLineHours: 0,
+      accMaterial: 0, miscPct: Number(unit.miscPct) || 3, miscCost: 0,
+      totalMaterial: 0, totalLabor: 0, totalHours: 0, totalCost: 0,
+    };
+  }
+
   const estEquipCost = round0(tons * Number(baseCostPerTon));
   const equipCost = ownerProvided === 'xx' ? 0 : (quotedEquipCost != null ? Number(quotedEquipCost) : estEquipCost);
 
@@ -491,10 +653,19 @@ export function calcSplitUnit(unit) {
 
   addAcc(accessories.condenserRails,  T.condenserRails,  L.condenserRails,  'condenserRails');
   addAcc(accessories.drainPan,        T.drainPan,        L.drainPan,        'drainPan');
-  addAcc(accessories.cuLineUnder100,  T.cuLineUnder100,  L.cuLineUnder100,  'cuLineUnder100');
-  addAcc(accessories.cuLineOver100,   T.cuLineOver100,   L.cuLineOver100,   'cuLineOver100');
-  addAcc(accessories.cuRollUnder100,  T.cuRollUnder100,  L.cuRollUnder100,  'cuRollUnder100');
-  addAcc(accessories.cuRollOver100,   T.cuRollOver100,   L.cuRollOver100,   'cuRollOver100');
+
+  // CU line: computed separately from accMaterial so it shows as its own badge.
+  // Copper result from CopperInputPanel is always used when available;
+  // static table accessories are the legacy fallback when no mode is chosen.
+  const cuLineMaterial = copperPricingResult ? round2(copperPricingResult.material) : 0;
+  const cuLineHours    = copperPricingResult
+    ? calcCopperLaborHours(copperPricingResult, copper.copperType || 'L')
+    : 0;
+  const cuLineLabor    = round2(cuLineHours * TR);
+
+  // Refrigerant supplemental charge — automatic, based on tonnage + run length.
+  const refrigCost = calcRefrigCharge(tons, Number(copper.avgLengthFt) || 0, unit.refrigCylinderPrice);
+
   addAcc(accessories.oaDamper,        T.oaDamper,        L.oaDamper,        'oaDamper');
   addAcc(accessories.floatSwitch,     T.floatSwitch,     L.floatSwitch,     'floatSwitch');
   addAcc(accessories.pvcCond,         T.pvcCond,         L.pvcCond,         'pvcCond');
@@ -530,20 +701,26 @@ export function calcSplitUnit(unit) {
   accLabor  += round2((baseHours + startHours) * TR);
   accHours  += baseHours + startHours;
 
-  const misc        = round2(accMaterial * MISC_CONSUMABLES_PCT);
-  const totalMat    = round2(equipCost + accMaterial + misc);
-  const totalLabor  = round2(accLabor);
+  const miscRate    = (Number(unit.miscPct) || 3) / 100;
+  const preMisc     = round2(equipCost + cuLineMaterial + refrigCost + accMaterial);
+  const misc        = round2(preMisc * miscRate);
+  const totalMat    = round2(preMisc + misc);
+  const totalLabor  = round2(accLabor + cuLineLabor);
 
   return {
     ...unit,
     estEquipCost,
     equipCost,
+    cuLineMaterial,
+    refrigCost,
+    cuLineHours:   round2(cuLineHours),
     accMaterial:   round2(accMaterial),
+    miscPct:       Number(unit.miscPct) || 3,
     miscCost:      misc,
     totalMaterial: totalMat,
     totalLabor,
-    totalHours: round2(accHours),
-    totalCost:  round2(totalMat + totalLabor),
+    totalHours:    round2(accHours + cuLineHours),
+    totalCost:     round2(totalMat + totalLabor),
   };
 }
 
@@ -561,9 +738,23 @@ export function calcWallMountUnit(unit) {
     accessories = {},
     techRate = WALL_MOUNT_TECH_RATE, // allow override from settings
     priceOverrides = {},             // user-editable price overrides
+    copperPricingResult = null,      // from POST /api/copper-pricing
+    copper = {},
   } = unit;
 
   const tons = Number(coolTons) || 0;
+
+  // Blank row — no tonnage entered, return zeros
+  if (tons <= 0) {
+    return {
+      ...unit,
+      estEquipCost: 0, equipCost: 0,
+      cuLineMaterial: 0, refrigCost: 0, cuLineHours: 0,
+      accMaterial: 0, miscPct: Number(unit.miscPct) || 3, miscCost: 0,
+      totalMaterial: 0, totalLabor: 0, totalHours: 0, totalCost: 0,
+    };
+  }
+
   const estEquipCost = round0(tons * Number(baseCostPerTon));
   const equipCost = ownerProvided === 'xx' ? 0 : (quotedEquipCost != null ? Number(quotedEquipCost) : estEquipCost);
 
@@ -591,8 +782,17 @@ export function calcWallMountUnit(unit) {
 
   addAcc(accessories.condenserRails, T.condenserRails, L.condenserRails, 'condenserRails');
   addAcc(accessories.condPump,       T.condPump,       L.condPump,       'condPump');
-  addAcc(accessories.cuUnder100,     T.cuUnder100,     L.cuUnder100,     'cuUnder100');
-  addAcc(accessories.cuOver100,      T.cuOver100,      L.cuOver100,      'cuOver100');
+
+  // CU line: computed separately — same pattern as split units.
+  const cuLineMaterial = copperPricingResult ? round2(copperPricingResult.material) : 0;
+  const cuLineHours    = copperPricingResult
+    ? calcCopperLaborHours(copperPricingResult, copper.copperType || 'L')
+    : 0;
+  const cuLineLabor    = round2(cuLineHours * TR);
+
+  // Refrigerant supplemental charge
+  const refrigCost = calcRefrigCharge(tons, Number(copper.avgLengthFt) || 0, unit.refrigCylinderPrice);
+
   addAcc(accessories.pvcCond,        T.pvcCond,        L.pvcCond,        'pvcCond');
   addAcc(accessories.cuCond,         T.cuCond,         L.cuCond,         'cuCond');
   addAcc(accessories.thermostat,     T.thermostat,     L.thermostat,     'thermostat');
@@ -611,20 +811,26 @@ export function calcWallMountUnit(unit) {
   accLabor  += round2((baseHours + startHours) * TR);
   accHours  += baseHours + startHours;
 
-  const misc       = round2(accMaterial * MISC_CONSUMABLES_PCT);
-  const totalMat   = round2(equipCost + accMaterial + misc);
-  const totalLabor = round2(accLabor);
+  const miscRate   = (Number(unit.miscPct) || 3) / 100;
+  const preMisc    = round2(equipCost + cuLineMaterial + refrigCost + accMaterial);
+  const misc       = round2(preMisc * miscRate);
+  const totalMat   = round2(preMisc + misc);
+  const totalLabor = round2(accLabor + cuLineLabor);
 
   return {
     ...unit,
     estEquipCost,
     equipCost,
+    cuLineMaterial,
+    refrigCost,
+    cuLineHours:   round2(cuLineHours),
     accMaterial:   round2(accMaterial),
+    miscPct:       Number(unit.miscPct) || 3,
     miscCost:      misc,
     totalMaterial: totalMat,
     totalLabor,
-    totalHours: round2(accHours),
-    totalCost:  round2(totalMat + totalLabor),
+    totalHours:    round2(accHours + cuLineHours),
+    totalCost:     round2(totalMat + totalLabor),
   };
 }
 
@@ -647,9 +853,23 @@ export function calcVRFUnit(unit) {
     accessories = {},
     techRate = VRF_TECH_RATE,  // allow override from settings
     priceOverrides = {},       // user-editable price overrides
+    copperPricingResult = null, // from POST /api/copper-pricing
+    copper = {},
   } = unit;
 
   const tons = Number(coolTons) || 0;
+
+  // Blank row — no tonnage entered, return zeros
+  if (tons <= 0) {
+    return {
+      ...unit,
+      estEquipCost: 0, equipCost: 0,
+      cuLineMaterial: 0, refrigCost: 0, cuLineHours: 0,
+      accMaterial: 0, miscPct: Number(unit.miscPct) || 3, miscCost: 0,
+      totalMaterial: 0, totalLabor: 0, totalHours: 0, totalCost: 0,
+    };
+  }
+
   const indoorAvg = Number(indoorCoolAvgTons) || (tons / Math.max(1, Number(indoorUnits)));
   const estEquipCost = round0(tons * Number(baseCostPerTon));
   const equipCost = ownerProvided === 'xx' ? 0 : (quotedEquipCost != null ? Number(quotedEquipCost) : estEquipCost);
@@ -683,27 +903,16 @@ export function calcVRFUnit(unit) {
   addAcc(accessories.thermostat,     T.thermostat,     L.thermostat,     'thermostat');
   addAcc(accessories.smokeDetectors, T.smokeDetector,  L.smokeDetector,  'smokeDetector');
 
-  // CU line cost: per-ft rate × avg length × indoor units
-  if (accessories.cuLine && accessories.cuLine !== '' && Number(cuLineAvgLength) > 0) {
-    const defaultRatePerFt = lookupByTons(T.cuLineRatePerFt, indoorAvg);
-    const ratePerFt = (priceOverrides.cuLineRatePerFt != null && priceOverrides.cuLineRatePerFt !== '')
-      ? Number(priceOverrides.cuLineRatePerFt)
-      : defaultRatePerFt;
-    const lineMat = accessories.cuLine === 'xx' ? 0 : round2(ratePerFt * Number(cuLineAvgLength) * Number(indoorUnits));
-    const lineHrs = round2(lookupByTons(L.cuLine, tons));
-    accMaterial += lineMat;
-    accLabor    += round2(lineHrs * TR);
-    accHours    += lineHrs;
-  }
+  // CU line: computed separately as its own badge.
+  const cuLineMaterial = copperPricingResult ? round2(copperPricingResult.material) : 0;
+  const cuLineHours    = copperPricingResult
+    ? calcCopperLaborHours(copperPricingResult, copper.copperType || 'L')
+    : 0;
+  const cuLineLabor    = round2(cuLineHours * TR);
 
-  // Refrigerant supplemental
-  if (accessories.refrigCharge && accessories.refrigCharge !== '') {
-    const baseRate = (priceOverrides.refrigChargePerTon != null && priceOverrides.refrigChargePerTon !== '')
-      ? Number(priceOverrides.refrigChargePerTon)
-      : T.refrigChargePerTon;
-    const refMat = accessories.refrigCharge === 'xx' ? 0 : round2(baseRate * indoorAvg * Number(indoorUnits));
-    accMaterial += refMat;
-  }
+  // Refrigerant supplemental charge — total run = avg length per IDU × number of IDUs.
+  const totalLenFt = (Number(cuLineAvgLength) || 0) * Math.max(1, Number(indoorUnits));
+  const refrigCost = calcRefrigCharge(tons, totalLenFt, unit.refrigCylinderPrice);
 
   if (accessories.sensorQty && Number(accessories.sensorQty) > 0) {
     const qty       = Number(accessories.sensorQty);
@@ -728,20 +937,26 @@ export function calcVRFUnit(unit) {
   accLabor  += round2((indHrs + cuHrs + startHrs) * TR);
   accHours  += indHrs + cuHrs + startHrs;
 
-  const misc       = round2(accMaterial * MISC_CONSUMABLES_PCT);
-  const totalMat   = round2(equipCost + accMaterial + misc);
-  const totalLabor = round2(accLabor);
+  const miscRate   = (Number(unit.miscPct) || 3) / 100;
+  const preMisc    = round2(equipCost + cuLineMaterial + refrigCost + accMaterial);
+  const misc       = round2(preMisc * miscRate);
+  const totalMat   = round2(preMisc + misc);
+  const totalLabor = round2(accLabor + cuLineLabor);
 
   return {
     ...unit,
     estEquipCost,
     equipCost,
+    cuLineMaterial,
+    refrigCost,
+    cuLineHours:   round2(cuLineHours),
     accMaterial:   round2(accMaterial),
+    miscPct:       Number(unit.miscPct) || 3,
     miscCost:      misc,
     totalMaterial: totalMat,
     totalLabor,
-    totalHours: round2(accHours),
-    totalCost:  round2(totalMat + totalLabor),
+    totalHours:    round2(accHours + cuLineHours),
+    totalCost:     round2(totalMat + totalLabor),
   };
 }
 
@@ -875,8 +1090,10 @@ export function calcFanUnit(unit) {
   accLabor  += round2((baseHrs + startHrs) * TECH_RATE);
   accHours  += baseHrs + startHrs;
 
-  const misc        = round2(accMaterial * MISC_CONSUMABLES_PCT);
-  const totalMat    = round2(equipCost + accMaterial + misc);
+  const miscRate    = (Number(unit.miscPct) || 3) / 100;
+  const preMisc     = round2(equipCost + accMaterial);
+  const misc        = round2(preMisc * miscRate);
+  const totalMat    = round2(preMisc + misc);
   const totalLabor  = round2(accLabor);
 
   return {
@@ -884,6 +1101,7 @@ export function calcFanUnit(unit) {
     estEquipCost,
     equipCost,
     accMaterial:   round2(accMaterial),
+    miscPct:       Number(unit.miscPct) || 3,
     miscCost:      misc,
     totalMaterial: totalMat,
     totalLabor,
@@ -982,7 +1200,8 @@ export function calcLouverDamperUnit(unit) {
   const totalUnitMat = round2((unitMat + accMatPerUnit) * q);
   const totalHrs     = round2((baseHrs + accHrsPerUnit) * q);
   const totalLabor   = round2(totalHrs * TECH_RATE);
-  const misc         = round2(totalUnitMat * MISC_CONSUMABLES_PCT);
+  const miscRate     = (Number(unit.miscPct) || 3) / 100;
+  const misc         = round2(totalUnitMat * miscRate);
   const totalMat     = round2(totalUnitMat + misc);
 
   return {
@@ -991,6 +1210,7 @@ export function calcLouverDamperUnit(unit) {
     baseMat:       round2(baseMat),
     unitMat:       round2(unitMat),
     accMaterial:   round2(accMatPerUnit * q),
+    miscPct:       Number(unit.miscPct) || 3,
     miscCost:      misc,
     totalMaterial: totalMat,
     totalLabor,

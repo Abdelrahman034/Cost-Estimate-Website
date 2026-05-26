@@ -5,9 +5,10 @@ import { Toaster } from 'react-hot-toast';
 // Auth
 import { AuthProvider, useAuth } from '@contexts/AuthContext';
 import ProtectedRoute from '@components/auth/ProtectedRoute';
-import LoginPage from '@pages/auth/LoginPage';
-import RegisterPage from '@pages/auth/RegisterPage';
+import LoginPage          from '@pages/auth/LoginPage';
+import RegisterPage       from '@pages/auth/RegisterPage';
 import ForgotPasswordPage from '@pages/auth/ForgotPasswordPage';
+import AcceptInvitePage   from '@pages/auth/AcceptInvitePage';
 
 // Layout
 import Sidebar from '@components/Layout/Sidebar';
@@ -24,7 +25,9 @@ import SettingsPage    from '@pages/SettingsPage';
 import Dashboard       from '@pages/Dashboard';
 import AdminDashboard  from '@pages/AdminDashboard';
 import CompanyPage     from '@pages/CompanyPage';
-import ProjectsPage    from '@pages/ProjectsPage';
+import TeamPage        from '@pages/TeamPage';
+import ProjectsPage      from '@pages/ProjectsPage';
+import ProjectDetailPage from '@pages/ProjectDetailPage';
 import DemoSetup       from '@pages/DemoSetup';
 import { SettingsProvider } from '@contexts/SettingsContext';
 import { ROUTE_PATHS } from '@config/navigation';
@@ -46,14 +49,20 @@ function AppShell() {
       <div className="flex-1 flex flex-col overflow-hidden">
         <Header
           onMenuClick={() => setSidebarOpen(!sidebarOpen)}
-          projectInfo={projectInfo}
-          onProjectInfoChange={setProjectInfo}
           onLogout={logout}
           user={user}
         />
         <main className="flex-1 overflow-y-auto p-6">
           <Routes>
-            <Route path={ROUTE_PATHS.DASHBOARD}        element={<Dashboard projectInfo={projectInfo} />} />
+            {/* Role-aware home: admins see the bid dashboard, employees go to their projects */}
+            <Route
+              path={ROUTE_PATHS.DASHBOARD}
+              element={
+                user?.role === 'ADMIN'
+                  ? <Dashboard projectInfo={projectInfo} />
+                  : <Navigate to="/projects" replace />
+              }
+            />
             <Route path={ROUTE_PATHS.DUCT}             element={<MetalDuctModule projectInfo={projectInfo} />} />
             <Route path={ROUTE_PATHS.DIFFUSER}         element={<DiffuserModule />} />
             <Route path={ROUTE_PATHS.UNIT_SCHEDULE}    element={<UnitScheduleModule projectInfo={projectInfo} />} />
@@ -67,12 +76,20 @@ function AppShell() {
             <Route path={ROUTE_PATHS.PRICES}           element={<PriceMonitor />} />
             <Route path={ROUTE_PATHS.PROPOSAL}         element={<ProposalGenerator projectInfo={projectInfo} />} />
             <Route path={ROUTE_PATHS.SUMMARY}          element={<SummaryModule projectInfo={projectInfo} />} />
-            <Route path={ROUTE_PATHS.SETTINGS}         element={<SettingsPage />} />
+            <Route path={ROUTE_PATHS.SETTINGS}
+              element={
+                <ProtectedRoute allowedRoles={['ADMIN']}>
+                  <SettingsPage />
+                </ProtectedRoute>
+              }
+            />
             <Route path={ROUTE_PATHS.ADMIN_ANALYTICS}  element={<AdminDashboard />} />
             <Route path={ROUTE_PATHS.DEMO_SETUP}       element={<DemoSetup onProjectInfoChange={setProjectInfo} />} />
-            <Route path="/projects" element={<ProjectsPage />} />
-            <Route path="/company"  element={<CompanyPage />} />
-            <Route path="*"         element={<Navigate to={ROUTE_PATHS.DASHBOARD} replace />} />
+            <Route path="/projects"     element={<ProjectsPage />} />
+            <Route path="/projects/:id" element={<ProjectDetailPage />} />
+            <Route path="/company"      element={<CompanyPage />} />
+            <Route path="/team"         element={<TeamPage />} />
+            <Route path="*" element={<Navigate to={user?.role === 'ADMIN' ? ROUTE_PATHS.DASHBOARD : '/projects'} replace />} />
           </Routes>
         </main>
       </div>
@@ -89,6 +106,7 @@ export default function App() {
           <Route path="/login"           element={<LoginPage />} />
           <Route path="/register"        element={<RegisterPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/invite/:token"   element={<AcceptInvitePage />} />
           <Route
             path="/*"
             element={

@@ -91,8 +91,24 @@ function injectDemoData(onStep) {
 
   // 8. Change log
   localStorage.setItem('hvac_changelog', JSON.stringify(DEMO_CHANGELOG));
-  // Scenario comparison
-  localStorage.setItem('scenario_comparison', JSON.stringify(DEMO_SCENARIOS));
+  // Scenario comparison — ScenarioModule expects a bare array of scenario objects,
+  // each with { id, name, baseMaterial, baseHours, laborRate, matlMarkup,
+  //             overhead, profit, contingency, color }.
+  // DEMO_SCENARIOS was previously stored directly (an object with a .scenarios key),
+  // which caused a crash. We now map the demo data to the correct schema.
+  const demoScenarioArray = (DEMO_SCENARIOS.scenarios || []).map((s, i) => ({
+    id:           s.id || `sc-demo-${i}`,
+    name:         s.label || `Scenario ${String.fromCharCode(65 + i)}`,
+    baseMaterial: Math.round((s.directCost || 0) * 0.55),
+    baseHours:    Math.round((s.directCost || 0) * 0.45 / 25),
+    laborRate:    25,
+    matlMarkup:   10,
+    overhead:     Math.round((s.overhead || 0.15) * 100),
+    profit:       Math.round((s.profit   || 0.10) * 100),
+    contingency:  3,
+    color:        ['blue', 'orange', 'green', 'purple'][i] || 'blue',
+  }));
+  localStorage.setItem('scenario_comparison', JSON.stringify(demoScenarioArray));
   steps.push('extras');
   onStep([...steps]);
 

@@ -9,6 +9,8 @@ import {
 import { saveModuleTotals } from '@utils/projectTotals';
 import ElectricHeatRow from './ElectricHeatRow';
 import ElectricHeatTotals from './ElectricHeatTotals';
+import { useEstimate } from '@hooks/useEstimate';
+import EstimateProjectBanner from '@components/EstimateProjectBanner';
 
 // ─── Default settings ──────────────────────────────────────────────────────────
 const DEFAULT_SETTINGS = {
@@ -33,9 +35,18 @@ export default function ElectricHeatModule() {
   const [results, setResults]       = useState(null);
   const [settings, setSettings]     = useState(DEFAULT_SETTINGS);
   const [showSettings, setShowSettings] = useState(false);
+  const { projectId, projectName, loadEstimate, saveEstimate, saving, lastSaved, saveError } = useEstimate('ELECTRIC_HEAT');
 
-  // Auto-load demo rows on mount when demo mode is active
+  // Load from DB if in project context, otherwise fall back to demo mode
   useEffect(() => {
+    if (projectId) {
+      loadEstimate().then(est => {
+        if (est?.rowsJson && Array.isArray(est.rowsJson) && est.rowsJson.length > 0) {
+          setRows(est.rowsJson);
+        }
+      });
+      return;
+    }
     if (localStorage.getItem('demo_mode') === 'true') {
       try {
         const saved = localStorage.getItem('demo_elec_heat');
@@ -45,7 +56,7 @@ export default function ElectricHeatModule() {
         }
       } catch (_) {}
     }
-  }, []);
+  }, [loadEstimate, projectId]);
 
   // ── Auto-push totals to Dashboard ─────────────────────────────────────────
   useEffect(() => {
@@ -68,7 +79,15 @@ export default function ElectricHeatModule() {
     const batch = calculateElectricHeatBatch(rows, settings);
     setResults(batch);
     toast.success(`Calculated ${filled.length} heater(s)`);
-  }, [rows, settings]);
+    if (projectId) {
+      saveEstimate({
+        rowsJson:      rows,
+        totalMaterial: batch.totals.totalMaterial,
+        totalLabor:    batch.totals.totalLabor,
+        totalCost:     batch.totals.totalMatPlusLab,
+      });
+    }
+  }, [rows, settings, projectId, saveEstimate]);
 
   // ── Row handlers ───────────────────────────────────────────────────────────
   const handleRowChange = useCallback((id, field, value) => {
@@ -145,6 +164,10 @@ export default function ElectricHeatModule() {
   return (
     <div className="max-w-full">
 
+      <EstimateProjectBanner
+        projectId={projectId} projectName={projectName}
+        saving={saving} lastSaved={lastSaved} saveError={saveError}
+      />
       {/* ── Header ──────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between mb-6">
         <div>

@@ -26,4 +26,9 @@ export const projectsApi = {
   // Delete a project
   remove: (id) =>
     api.delete(`/projects/${id}`),
+
+  // ── Member management (admin only) ──────────────────────────────────────────
+  listMembers:  (projectId)           => api.get(`/projects/${projectId}/members`).then(r => r.data),
+  addMember:    (projectId, userId)   => api.post(`/projects/${projectId}/members`, { userId }).then(r => r.data),
+  removeMember: (projectId, userId)   => api.delete(`/projects/${projectId}/members/${userId}`),
 };

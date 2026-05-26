@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useContext, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { rollUpSummary, applyOverheadAndMargin } from '@utils/ductCalculations';
 import { DollarSign, TrendingUp, Clock, Package } from 'lucide-react';
+import { SettingsContext } from '@contexts/SettingsContext';
 
 const defaultModules = [
   { name: 'Metal Duct', materialCost: 0, laborCost: 0, laborHours: 0 },
@@ -15,8 +16,23 @@ const defaultModules = [
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'];
 
 export default function SummaryModule({ projectInfo }) {
+  const { pricingConfig } = useContext(SettingsContext);
+
   const [modules, setModules] = useState(defaultModules);
-  const [overhead, setOverhead] = useState({ overheadPct: 0.15, profitPct: 0.10 });
+
+  // Overhead initialized from pricingConfig (company defaults or project overrides).
+  // Syncs automatically when project settings change so the bid total stays correct.
+  const [overhead, setOverhead] = useState(() => ({
+    overheadPct: pricingConfig.overheadPct ?? 0.15,
+    profitPct:   pricingConfig.profitPct   ?? 0.10,
+  }));
+
+  useEffect(() => {
+    setOverhead({
+      overheadPct: pricingConfig.overheadPct ?? 0.15,
+      profitPct:   pricingConfig.profitPct   ?? 0.10,
+    });
+  }, [pricingConfig.overheadPct, pricingConfig.profitPct]);
 
   const handleModuleChange = (index, field, value) => {
     setModules((prev) => prev.map((m, i) =>

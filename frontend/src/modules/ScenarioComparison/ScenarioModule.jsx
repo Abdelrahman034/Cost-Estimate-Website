@@ -22,7 +22,16 @@ const fmt  = (n) => new Intl.NumberFormat('en-US', { style: 'currency', currency
 const pct  = (n) => `${(n || 0).toFixed(1)}%`;
 
 function load(key, def) {
-  try { return JSON.parse(localStorage.getItem(key) || 'null') ?? def; }
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || 'null');
+    // Guard: must be a non-empty array with the expected schema.
+    // DemoSetup previously stored { scenarios: [...] } (object) instead of
+    // a bare array, which caused ".map is not a function" on render.
+    if (!Array.isArray(parsed) || parsed.length === 0) return def;
+    // Each item must have at least an id and a name/label
+    if (!parsed[0]?.id) return def;
+    return parsed;
+  }
   catch { return def; }
 }
 

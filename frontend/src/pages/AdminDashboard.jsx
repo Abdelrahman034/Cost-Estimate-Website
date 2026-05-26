@@ -13,6 +13,7 @@ import {
   Briefcase, BarChart3, RefreshCw, ArrowUpRight, ArrowDownRight,
   Clock, FileText, Activity, Target, AlertCircle,
 } from 'lucide-react';
+import api from '@services/api';
 
 // ─── Colour palette ───────────────────────────────────────────────────────────
 const PALETTE = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6',
@@ -116,11 +117,10 @@ export default function AdminDashboard() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/analytics');
-      if (!res.ok) throw new Error(`Server error ${res.status}`);
-      setData(await res.json());
+      const res = await api.get('/analytics');
+      setData(res.data);
     } catch (e) {
-      setError(e.message);
+      setError(e.response?.data?.error || e.message || 'Failed to load analytics');
     } finally {
       setLoading(false);
     }

@@ -107,6 +107,7 @@ model User {
   company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
   refreshTokens RefreshToken[]
   projects      Project[]      @relation("ProjectCreator")
+  memberships   ProjectMember[] @relation("ProjectMemberships")
   estimates     Estimate[]     @relation("EstimateCreator")
   changelogs    ProjectChangelog[]
 
@@ -173,6 +174,11 @@ model Project {
   companyPhone   String? @map("company_phone")
   companyEmail   String? @map("company_email")
 
+  // Per-project settings overrides set by the estimator.
+  // Stores only the keys that differ from company defaults.
+  // Company PricingConfig is never mutated by project-level overrides.
+  settingsOverrides Json? @map("settings_overrides")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt      @map("updated_at")
 
@@ -184,10 +190,28 @@ model Project {
   scenarios  Scenario[]
   changelogs ProjectChangelog[]
   reports    Report[]
+  members    ProjectMember[]
 
   @@index([companyId])
   @@index([companyId, status])
   @@map("projects")
+}
+
+// Which users have access to a specific project (for non-admin users)
+model ProjectMember {
+  id           String   @id @default(cuid())
+  projectId    String   @map("project_id")
+  userId       String   @map("user_id")
+  assignedById String?  @map("assigned_by_id")
+  assignedAt   DateTime @default(now()) @map("assigned_at")
+
+  project    Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user       User    @relation("ProjectMemberships", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@index([projectId])
+  @@index([userId])
+  @@map("project_members")
 }
 
 model ProjectContact {
@@ -344,6 +368,9 @@ model PricingConfig {
   diffuserPricing   Json? @map("diffuser_pricing")
   louverPricing     Json? @map("louver_pricing")
 
+  // Copper pricing settings (LME price, safety factors, defaults)
+  copperSettings    Json? @map("copper_settings")
+
   updatedAt DateTime @updatedAt @map("updated_at")
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -444,6 +471,90 @@ model SupplierQuote {
   @@unique([rfqId, supplierId])
   @@index([rfqId])
   @@map("supplier_quotes")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COPPER PIPE REFERENCE DATA  (global — not per-company)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// One row per nominal pipe size.
+// Physical weights from ASTM B88 / B280.
+// Distribution factors reverse-engineered from Grainger ACR retail prices
+// at LME baseline $4.25/lb (see copperPricingEngine.js CALIBRATION NOTES).
+model CopperPipeSpec {
+  id        String @id @default(cuid())
+
+  // e.g. '3/8"' | '1/2"' | '5/8"' | '3/4"' | '7/8"' |
+  //      '1-1/8"' | '1-3/8"' | '1-5/8"' | '2-1/8"' | '2-5/8"'
+  nominalSize String @unique @map("nominal_size")
+  sortOrder   Int    @default(0) @map("sort_order")
+
+  // ASTM B88 / B280 weights per copper wall type (lb/ft)
+  weightKLbPerFt Decimal @map("weight_k_lb_per_ft") @db.Decimal(6, 4)
+  weightLLbPerFt Decimal @map("weight_l_lb_per_ft") @db.Decimal(6, 4)
+  weightMLbPerFt Decimal @map("weight_m_lb_per_ft") @db.Decimal(6, 4)
+
+  // Grainger retail calibration at LME baseline $4.25/lb.
+  // distributionFactor = GraingerRetail_$/ft / (weightL_lb_per_ft × $4.25)
+  // Encodes: mill drawing premium + distributor markup + waste allowance.
+  distributionFactor Decimal @map("distribution_factor") @db.Decimal(6, 4)
+
+  // VRV / ACR baseline retail price per ft at LME $4.25/lb (Grainger −10% trade).
+  // NULL for 2-5/8" which has no standard VRV price in the reference table.
+  vrvBaselinePricePerFt Decimal? @map("vrv_baseline_price_per_ft") @db.Decimal(7, 4)
+
+  // Insulation cost per ft — fixed, NOT LME-linked (foam pipe insulation, Grainger).
+  insulationCostPerFt Decimal @map("insulation_cost_per_ft") @db.Decimal(6, 4)
+
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([sortOrder])
+  @@map("copper_pipe_specs")
+}
+
+// One row per (equipType × tonnage bracket).
+// Stores: pipe-size assignments, assumed run lengths, baseline lump-sum prices,
+// and VRV blended $/ft data — all calibrated at LME baseline $4.25/lb.
+model CopperEquipmentConfig {
+  id        String @id @default(cuid())
+
+  // 'split' | 'wallMounted' | 'ahuWithCU' | 'vrv'
+  equipType String @map("equip_type")
+  // 0 | 5 | 10 | 20 | 50 | 75  (tonnage bracket; 0 = sub-5-ton)
+  tonnage   Int
+
+  // ── Pipe size assignments (split / wallMounted / ahuWithCU) ────────────────
+  liquidPipeSize   String?  @map("liquid_pipe_size")    // e.g. '3/8"'
+  suctionPipeSize  String?  @map("suction_pipe_size")   // e.g. '7/8"'
+  avgLengthShortFt Decimal? @map("avg_length_short_ft") @db.Decimal(7, 2)
+  avgLengthLongFt  Decimal? @map("avg_length_long_ft")  @db.Decimal(7, 2)
+
+  // ── Baseline lump-sum installed prices (split / wallMounted) ──────────────
+  // copperL   = hard-drawn / soft Type L straight lengths
+  // copperRoll = pre-made line set (smaller pipe dia., less labor) ≈ 0.50 × copperL
+  baselineCopperLShort    Decimal? @map("baseline_copper_l_short")    @db.Decimal(10, 2)
+  baselineCopperLLong     Decimal? @map("baseline_copper_l_long")     @db.Decimal(10, 2)
+  baselineCopperRollShort Decimal? @map("baseline_copper_roll_short") @db.Decimal(10, 2)
+  baselineCopperRollLong  Decimal? @map("baseline_copper_roll_long")  @db.Decimal(10, 2)
+
+  // ── Baseline lump-sum installed prices (ahuWithCU — single category) ──────
+  baselineShort Decimal? @map("baseline_short") @db.Decimal(10, 2)
+  baselineLong  Decimal? @map("baseline_long")  @db.Decimal(10, 2)
+
+  // ── VRV blended composite $/ft (all branch + header pipes combined) ────────
+  // vrvBasePerFt          = baseline blended $/ft at LME $4.25/lb
+  // vrvBlendedWeightPerFt = reverse-engineered total copper lb/ft across all pipes
+  //                         used in delta formula: Δ$/ft = blendedWeight × ΔLME
+  // vrvInsulationPerFt    = weighted-avg insulation $/ft (fixed, not LME-linked)
+  vrvBasePerFt          Decimal? @map("vrv_base_per_ft")           @db.Decimal(7, 4)
+  vrvBlendedWeightPerFt Decimal? @map("vrv_blended_weight_per_ft") @db.Decimal(6, 4)
+  vrvInsulationPerFt    Decimal? @map("vrv_insulation_per_ft")     @db.Decimal(5, 4)
+
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([equipType, tonnage])
+  @@index([equipType])
+  @@map("copper_equipment_configs")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

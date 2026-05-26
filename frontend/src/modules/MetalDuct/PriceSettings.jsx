@@ -16,10 +16,34 @@ export function getUnitFactor(unit) {
   return UNIT_OPTIONS.find((u) => u.value === unit)?.factor ?? 1.0;
 }
 
-export default function PriceSettings({ prices, overhead, onPricesChange, onOverheadChange, onClose }) {
+/**
+ * PriceSettings — Duct pricing configuration panel.
+ *
+ * Two usage modes:
+ *
+ *   1. Module inline (MetalDuctModule) — pass `activeProjectId` + `onProjectSave`:
+ *      • Button says "Save to Project", disabled when no project is open.
+ *      • Saves only to project overrides, never touches global localStorage.
+ *
+ *   2. Settings page (SettingsPage) — omit `activeProjectId` / `onProjectSave`:
+ *      • Button says "Save Settings" (original behaviour).
+ *      • Calls onPricesChange + onOverheadChange to persist in localStorage / company config.
+ */
+export default function PriceSettings({
+  prices,
+  overhead,
+  onPricesChange,
+  onOverheadChange,
+  onClose,
+  /** Optional — when provided, switches to project-scoped save mode */
+  activeProjectId,
+  onProjectSave,
+}) {
   const [loading, setLoading] = useState(false);
   const [draft, setDraft] = useState(prices);
   const [draftOverhead, setDraftOverhead] = useState(overhead);
+
+  const projectMode = typeof onProjectSave === 'function';
 
   const fetchLivePrices = async () => {
     setLoading(true);
@@ -47,11 +71,19 @@ export default function PriceSettings({ prices, overhead, onPricesChange, onOver
   };
 
   const handleSave = () => {
-    onPricesChange(draft);
-    onOverheadChange(draftOverhead);
+    if (projectMode) {
+      onProjectSave(draft, draftOverhead);
+    } else {
+      onPricesChange(draft);
+      onOverheadChange(draftOverhead);
+      toast.success('Settings saved');
+    }
     onClose();
-    toast.success('Settings saved');
   };
+
+  const saveDisabled = projectMode && !activeProjectId;
+  const saveLabel    = projectMode ? 'Save to Project' : 'Save Settings';
+  const saveTitle    = saveDisabled ? 'Open a project to save duct pricing settings.' : undefined;
 
   return (
     <div className="card mb-6 border-blue-200 bg-blue-50">
@@ -61,6 +93,13 @@ export default function PriceSettings({ prices, overhead, onPricesChange, onOver
           <X size={18} />
         </button>
       </div>
+
+      {/* Project-mode hint */}
+      {projectMode && !activeProjectId && (
+        <div className="mb-4 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
+          Open a project to save duct pricing settings to that project only.
+        </div>
+      )}
 
       {/* ── Measurement Unit ── */}
       <div className="mb-5 p-3 rounded-xl bg-white border border-blue-200">
@@ -259,8 +298,13 @@ export default function PriceSettings({ prices, overhead, onPricesChange, onOver
           <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
           {loading ? 'Fetching...' : 'Get AI Prices'}
         </button>
-        <button onClick={handleSave} className="btn-primary text-sm">
-          Save Settings
+        <button
+          onClick={handleSave}
+          disabled={saveDisabled}
+          title={saveTitle}
+          className={`btn-primary text-sm ${saveDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+        >
+          {saveLabel}
         </button>
       </div>
     </div>

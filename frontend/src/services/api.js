@@ -77,6 +77,59 @@ export const rfqApi = {
   upsertQuote: (rfqId, supId, d) => api.put(`/suppliers/rfqs/${rfqId}/quotes/${supId}`, d),
 };
 
+// ─── PRICING CONFIG ───────────────────────────────────────────────────────────
+export const pricingApi = {
+  getConfig:  ()     => api.get('/pricing'),
+  saveConfig: (data) => api.put('/pricing', data),
+};
+
+// ─── PROJECT SETTINGS OVERRIDES ──────────────────────────────────────────────
+// Estimators can override company defaults for a specific project.
+// These never touch PricingConfig — company settings stay intact.
+export const projectSettingsApi = {
+  /** Returns { overrides: {...} } — only keys the estimator overrode */
+  get:   (projectId)           => api.get(`/projects/${projectId}/settings`),
+  /** Saves overrides; body { overrides: {...} } */
+  save:  (projectId, overrides) => api.put(`/projects/${projectId}/settings`, { overrides }),
+  /** Clears all project overrides → falls back to company defaults */
+  reset: (projectId)           => api.delete(`/projects/${projectId}/settings`),
+};
+
+// ─── COPPER PRICING ───────────────────────────────────────────────────────────
+// Wires the backend copperPricingEngine to the frontend Unit Schedule.
+// Inputs mirror the row's copper sub-object plus equipment context.
+export const copperApi = {
+  /**
+   * Compute LME-adjusted copper line cost for a single unit row.
+   * @param {object} params – { equipType, tonnage, isLongRun, lineSetType,
+   *   lmePrice, copperType, safetyFactor, avgLengthFt, includeInsulation,
+   *   indoorUnits, vrfBlendedTonnage, copperFractionOverride }
+   */
+  calc: (params) => api.post('/copper-pricing', params),
+
+  /** Per-size VRV table at the given LME. */
+  vrvPerSize: (params) => api.post('/copper-pricing/vrv-per-size', params),
+
+  /** Active reference data: pipe sizes, weights, baseline prices (DB-aware). */
+  getTables: () => api.get('/copper-pricing/tables'),
+
+  // ── Admin reference-data endpoints ──────────────────────────────────────
+  /** Get all pipe specs from DB (with hardcoded fallback). */
+  getPipeSpecs: () => api.get('/copper-pricing/specs'),
+
+  /** Admin: update a single pipe spec by DB id. */
+  updatePipeSpec: (id, data) => api.put(`/copper-pricing/specs/${id}`, data),
+
+  /** Get all equipment configs from DB. */
+  getEquipmentConfigs: () => api.get('/copper-pricing/equipment-configs'),
+
+  /** Admin: update a single equipment config by DB id. */
+  updateEquipmentConfig: (id, data) => api.put(`/copper-pricing/equipment-configs/${id}`, data),
+
+  /** Admin: restore all calibrated defaults (Grainger $4.25/lb baseline). */
+  restoreDefaults: () => api.post('/copper-pricing/restore-defaults'),
+};
+
 // ─── ANALYTICS ───────────────────────────────────────────────────────────────
 export const analyticsApi = {
   get: () => api.get('/analytics'),

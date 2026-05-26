@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { GripVertical, RotateCcw, X, Wrench } from 'lucide-react';
 import { NAV_SECTIONS, ROUTE_PATHS } from '@config/navigation';
+import { useAuth } from '@contexts/AuthContext';
 
 const ORDER_STORAGE_KEY = 'sidebar_estimating_order';
 const estimatingSection = NAV_SECTIONS.find((section) => section.title === 'Estimating');
@@ -24,6 +25,8 @@ function loadOrder() {
 }
 
 export default function Sidebar({ open, onClose }) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'ADMIN';
   const [estimatingOrder, setEstimatingOrder] = useState(loadOrder);
   const [draggedRoute, setDraggedRoute] = useState(null);
 
@@ -87,7 +90,11 @@ export default function Sidebar({ open, onClose }) {
 
         {/* Navigation */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          {NAV_SECTIONS.map((section) => (
+          {NAV_SECTIONS.map((section) => {
+            // Filter out adminOnly items for non-admin users
+            const visibleItems = section.items.filter(item => !item.adminOnly || isAdmin);
+            if (visibleItems.length === 0) return null;
+            return (
             <div key={section.title}>
               <div className="flex items-center justify-between gap-2 text-xs font-semibold text-gray-500 uppercase tracking-wider px-3 mb-3 mt-5 first:mt-0">
                 <span>{section.title}</span>
@@ -107,6 +114,8 @@ export default function Sidebar({ open, onClose }) {
                 ? estimatingOrder.map((to, index) => {
                     const item = estimatingItemByRoute.get(to);
                     if (!item) return null;
+                    // Respect adminOnly flag — same rule as non-Estimating sections
+                    if (item.adminOnly && !isAdmin) return null;
                     const { label, icon: Icon, ai } = item;
                     const isDragging = draggedRoute === to;
                     return (
@@ -153,11 +162,11 @@ export default function Sidebar({ open, onClose }) {
                       </div>
                     );
                   })
-                : section.items.map(({ to, label, icon: Icon, ai }) => (
+                : visibleItems.map(({ to, label, icon: Icon, ai }) => (
                     <NavLink
                       key={to}
                       to={to}
-                      end={to === ROUTE_PATHS.DASHBOARD}
+                      end={to === ROUTE_PATHS.DASHBOARD || to === '/projects'}
                       className={({ isActive }) =>
                         `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                           isActive
@@ -176,7 +185,8 @@ export default function Sidebar({ open, onClose }) {
                     </NavLink>
                   ))}
             </div>
-          ))}
+            );
+          })}
         </nav>
 
         {/* Footer */}

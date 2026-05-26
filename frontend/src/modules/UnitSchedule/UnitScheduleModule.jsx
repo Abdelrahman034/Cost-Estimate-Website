@@ -12,8 +12,8 @@
  *   • Live Dashboard     — totals written to localStorage for the project dashboard
  *   • Copy From Project  — clone a section from a previously saved project snapshot
  */
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
-import { Plus, Download, ChevronDown, ChevronUp, Info, Upload, Copy as CopyIcon, Play, Settings2, Tag } from 'lucide-react';
+import React, { useState, useCallback, useMemo, useEffect, useContext } from 'react';
+import { Plus, Download, ChevronDown, ChevronUp, Info, Upload, Copy as CopyIcon, Play, Settings2, Zap, LayoutList } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { DEMO_UNIT_SCHEDULE } from '@utils/demoData';
 import {
@@ -34,9 +34,12 @@ import {
   VRF_TECH_RATE,
 } from '@utils/unitScheduleCalculations';
 import { saveModuleTotals } from '@utils/projectTotals';
+import { useEstimate } from '@hooks/useEstimate';
+import EstimateProjectBanner from '@components/EstimateProjectBanner';
 import { SectionExpandContext } from './shared';
 import { TemplatesPanel } from './TemplatesModal';
 import CsvImportModal from './CsvImportModal';
+import { SettingsContext, DEFAULT_COPPER_SETTINGS, DEFAULT_ACCESSORY_OVERRIDES } from '@contexts/SettingsContext';
 import AccessoryPriceSettings from './AccessoryPriceSettings';
 import ServiceRow       from './ServiceRow';
 import PackagedRow      from './PackagedRow';
@@ -74,18 +77,31 @@ const newServiceRow = (id) => ({
 const newPackagedRow = (id) => ({
   id, name: '', coolTons: 0, ownerProvided: '',
   baseCostPerTon: 0, quotedEquipCost: null,
+  miscPct: 3,
   accessories: {
     standardCurb: '', metalRoofCurb: '', curbAdapter: '', economizer: '',
     pvcCond: '', cuCond: '', thermostat: '', smokeDetectors: '',
     sensorQty: 0, newDrops: '', drumLouvers: '',
   },
 });
+// Copper sub-object for Split, Wall Mount, and VRF rows.
+// mode: null = user hasn't chosen yet — panel prompts them to pick.
+// copperType: K/L/M per row — directly affects cost (K is heavier = more expensive).
+// LME price and safety factors are global company settings (Settings → Copper tab).
+export const DEFAULT_COPPER = {
+  mode:              'manual', // always run-length mode
+  copperType:        'L',      // 'K' | 'L' | 'M' — per row, weight ratio scales material & labor
+  avgLengthFt:       0,        // avg run length per unit (ft)
+  includeInsulation: true,     // include closed-cell foam insulation cost
+};
+
 const newSplitRow = (id) => ({
   id, name: '', coolTons: 0, ownerProvided: '',
   baseCostPerTon: 0, quotedEquipCost: null,
+  miscPct: 3,
+  copper: { ...DEFAULT_COPPER },
   accessories: {
-    condenserRails: '', drainPan: '', cuLineUnder100: '', cuLineOver100: '',
-    cuRollUnder100: '', cuRollOver100: '', oaDamper: '', floatSwitch: '',
+    condenserRails: '', drainPan: '', oaDamper: '', floatSwitch: '',
     pvcCond: '', cuCond: '', thermostat: '', smokeDetectors: '',
     sensorQty: 0, ductTransitions: '',
   },
@@ -93,8 +109,10 @@ const newSplitRow = (id) => ({
 const newWallMountRow = (id) => ({
   id, name: '', coolTons: 0, ownerProvided: '',
   baseCostPerTon: 0, quotedEquipCost: null,
+  miscPct: 3,
+  copper: { ...DEFAULT_COPPER },
   accessories: {
-    condenserRails: '', condPump: '', cuUnder100: '', cuOver100: '',
+    condenserRails: '', condPump: '',
     pvcCond: '', cuCond: '', thermostat: '',
   },
 });
@@ -102,8 +120,10 @@ const newVRFRow = (id) => ({
   id, name: '', coolTons: 0, condensingUnits: 1, indoorUnits: 1,
   indoorCoolAvgTons: 0, ownerProvided: '', baseCostPerTon: 0,
   quotedEquipCost: null, cuLineAvgLength: 0,
+  miscPct: 3,
+  copper: { ...DEFAULT_COPPER },
   accessories: {
-    condenserRails: '', drainPan: '', cuLine: '', refrigCharge: '',
+    condenserRails: '', drainPan: '',
     pvcCond: '', cuCond: '', thermostat: '', smokeDetectors: '', sensorQty: 0,
   },
 });
@@ -111,6 +131,7 @@ const newFanRow = (id) => ({
   id, name: '', type: FAN_TYPES[0], cfm: 0,
   mount: 'Roof', drive: 'Direct Drive',
   ownerProvided: '', unitPrice: 0, quotedEquipCost: null,
+  miscPct: 3,
   accessories: {
     disconnectSwitch: '', gfiOutlet: '', backdraftDamper: '',
     curb: '', flexConnection: '', vfd: '', birdScreen: '', wiring: '',
@@ -120,6 +141,7 @@ const newLouverDamperRow = (id) => ({
   id, name: '', type: LOUVER_DAMPER_TYPES[0],
   widthIn: 0, heightIn: 0, qty: 1,
   ownerProvided: '', unitPrice: 0,
+  miscPct: 3,
   accessories: { screen: '', actuator: '', sleeve: '' },
 });
 
@@ -196,42 +218,43 @@ function CopyFromProjectBtn({ sectionKey, onImport }) {
 
 // Main component
 export default function UnitScheduleModule({ projectInfo }) {
-  const [activeTab, setActiveTab]     = useState('service');
-  const [showTechRates, setShowTechRates] = useState(false);
-  const [showPrices, setShowPrices]   = useState(false);
+  const { accessoryPriceOverrides, pricingConfig, savePricingConfig, activeProjectId } = useContext(SettingsContext);
 
-  // Per-type tech rates — adjust these to match your Excel labor columns
-  const [techRates, setTechRates] = useState({
-    packaged:  TECH_RATE,            // $25/hr  — sheet-metal / RTU crew
-    split:     SPLIT_TECH_RATE,      // $65/hr  — HVAC-R certified technician
-    wallMount: WALL_MOUNT_TECH_RATE, // $65/hr  — HVAC-R certified technician
-    vrf:       VRF_TECH_RATE,        // $75/hr  — VRF specialist
-  });
+  const [activeTab, setActiveTab]           = useState('service');
+  const [showTechRates, setShowTechRates]   = useState(false);
+  const [showCopperSettings, setShowCopperSettings] = useState(false);
+  const [showAccSettings,    setShowAccSettings]    = useState(false);
 
-  // Per-type accessory price overrides (blank = use default table)
-  const [priceOverrides, setPriceOverrides] = useState({
-    packaged:  {},
-    split:     {},
-    wallMount: {},
-    vrf:       {},
-  });
+  // Local drafts for inline settings panels (null = unchanged from global)
+  const [copperDraft, setCopperDraft] = useState(null);
+  const [accDraft,    setAccDraft]    = useState(null);
 
-  // Handlers for price overrides
-  const handlePriceSet = (section, key, value) =>
-    setPriceOverrides(prev => ({
-      ...prev,
-      [section]: { ...prev[section], [key]: value === '' ? '' : value },
-    }));
+  // Per-type tech rates — initialized from pricingConfig (company defaults or
+  // project-level overrides); sync automatically when context changes so that
+  // any project override set in ProjectSettingsOverride flows through here.
+  const [techRates, setTechRates] = useState(() => ({
+    packaged:  pricingConfig.ratePackaged  ?? TECH_RATE,
+    split:     pricingConfig.rateSplit     ?? SPLIT_TECH_RATE,
+    wallMount: pricingConfig.rateWallMount ?? WALL_MOUNT_TECH_RATE,
+    vrf:       pricingConfig.rateVrf       ?? VRF_TECH_RATE,
+  }));
 
-  const handlePriceReset = (section, key) =>
-    setPriceOverrides(prev => {
-      const next = { ...prev[section] };
-      delete next[key];
-      return { ...prev, [section]: next };
+  // When project settings are loaded/changed, keep tech rates in sync.
+  // (This does NOT clobber in-session manual edits unless the context actually changes.)
+  useEffect(() => {
+    setTechRates({
+      packaged:  pricingConfig.ratePackaged  ?? TECH_RATE,
+      split:     pricingConfig.rateSplit     ?? SPLIT_TECH_RATE,
+      wallMount: pricingConfig.rateWallMount ?? WALL_MOUNT_TECH_RATE,
+      vrf:       pricingConfig.rateVrf       ?? VRF_TECH_RATE,
     });
+  }, [ // eslint-disable-line react-hooks/exhaustive-deps
+    pricingConfig.ratePackaged,
+    pricingConfig.rateSplit,
+    pricingConfig.rateWallMount,
+    pricingConfig.rateVrf,
+  ]);
 
-  const handlePriceResetAll = () =>
-    setPriceOverrides({ packaged: {}, split: {}, wallMount: {}, vrf: {} });
 
   const [serviceRows,      setServiceRows]      = useState([newServiceRow('s-1'), newServiceRow('s-2')]);
   const [packagedRows,     setPackagedRows]     = useState([newPackagedRow('p-1')]);
@@ -240,36 +263,40 @@ export default function UnitScheduleModule({ projectInfo }) {
   const [vrfRows,          setVRFRows]          = useState([newVRFRow('v-1')]);
   const [fanRows,          setFanRows]          = useState([newFanRow('f-1')]);
   const [louverDamperRows, setLouverDamperRows] = useState([newLouverDamperRow('ld-1')]);
+  const { projectId, projectName, loadEstimate, saveEstimate, saving, lastSaved, saveError } = useEstimate('UNIT_SCHEDULE');
+
+  // Effective accessory overrides: local draft (unsaved) takes precedence over global context
+  const effAccOverrides = accDraft ?? accessoryPriceOverrides;
 
   // Inject per-type tech rate + price overrides into each row before batch calc
   const serviceResults  = useMemo(() => calcServiceBatch(serviceRows), [serviceRows]);
   const packagedResults = useMemo(
-    () => calcPackagedBatch(packagedRows.map(r => ({ ...r, priceOverrides: priceOverrides.packaged }))),
-    [packagedRows, priceOverrides.packaged]
+    () => calcPackagedBatch(packagedRows.map(r => ({ ...r, priceOverrides: effAccOverrides.packaged }))),
+    [packagedRows, effAccOverrides.packaged] // eslint-disable-line react-hooks/exhaustive-deps
   );
   const splitResults = useMemo(
     () => calcSplitBatch(splitRows.map(r => ({
       ...r,
-      techRate:      techRates.split,
-      priceOverrides: priceOverrides.split,
+      techRate:       techRates.split,
+      priceOverrides: effAccOverrides.split,
     }))),
-    [splitRows, techRates.split, priceOverrides.split]
+    [splitRows, techRates.split, effAccOverrides.split] // eslint-disable-line react-hooks/exhaustive-deps
   );
   const wallMountResults = useMemo(
     () => calcWallMountBatch(wallMountRows.map(r => ({
       ...r,
-      techRate:      techRates.wallMount,
-      priceOverrides: priceOverrides.wallMount,
+      techRate:       techRates.wallMount,
+      priceOverrides: effAccOverrides.wallMount,
     }))),
-    [wallMountRows, techRates.wallMount, priceOverrides.wallMount]
+    [wallMountRows, techRates.wallMount, effAccOverrides.wallMount] // eslint-disable-line react-hooks/exhaustive-deps
   );
   const vrfResults = useMemo(
     () => calcVRFBatch(vrfRows.map(r => ({
       ...r,
-      techRate:      techRates.vrf,
-      priceOverrides: priceOverrides.vrf,
+      techRate:       techRates.vrf,
+      priceOverrides: effAccOverrides.vrf,
     }))),
-    [vrfRows, techRates.vrf, priceOverrides.vrf]
+    [vrfRows, techRates.vrf, effAccOverrides.vrf] // eslint-disable-line react-hooks/exhaustive-deps
   );
   const fanResults          = useMemo(() => calcFanBatch(fanRows),                   [fanRows]);
   const louverDamperResults = useMemo(() => calcLouverDamperBatch(louverDamperRows), [louverDamperRows]);
@@ -289,8 +316,39 @@ export default function UnitScheduleModule({ projectInfo }) {
     saveModuleTotals('unit_schedule', summary.grand);
   }, [summary]);
 
-  // Auto-load demo data on mount when demo mode is active
+  // Auto-save to DB (debounced 2s) whenever rows or summary change
   useEffect(() => {
+    if (!projectId) return;
+    const timer = setTimeout(() => {
+      saveEstimate({
+        rowsJson: {
+          serviceRows, packagedRows, splitRows,
+          wallMountRows, vrfRows, fanRows, louverDamperRows,
+        },
+        totalMaterial: summary.grand.totalMaterial,
+        totalLabor:    summary.grand.totalLabor,
+        totalCost:     summary.grand.totalCost,
+      });
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [projectId, saveEstimate, summary, serviceRows, packagedRows, splitRows, wallMountRows, vrfRows, fanRows, louverDamperRows]);
+
+  // Load from DB if in project context; otherwise fall back to demo mode
+  useEffect(() => {
+    if (projectId) {
+      loadEstimate().then(est => {
+        if (!est?.rowsJson || typeof est.rowsJson !== 'object') return;
+        const d = est.rowsJson;
+        if (d.serviceRows?.length)      setServiceRows(d.serviceRows);
+        if (d.packagedRows?.length)     setPackagedRows(d.packagedRows);
+        if (d.splitRows?.length)        setSplitRows(d.splitRows);
+        if (d.wallMountRows?.length)    setWallMountRows(d.wallMountRows);
+        if (d.vrfRows?.length)          setVRFRows(d.vrfRows);
+        if (d.fanRows?.length)          setFanRows(d.fanRows);
+        if (d.louverDamperRows?.length) setLouverDamperRows(d.louverDamperRows);
+      });
+      return;
+    }
     if (localStorage.getItem('demo_mode') !== 'true') return;
     try {
       const saved = localStorage.getItem('demo_unit_schedule');
@@ -304,7 +362,7 @@ export default function UnitScheduleModule({ projectInfo }) {
       if (d.fanRows?.length)          setFanRows(d.fanRows);
       if (d.louverDamperRows?.length) setLouverDamperRows(d.louverDamperRows);
     } catch (_) {}
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loadEstimate, projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Save snapshot for "Copy From Project"
   const saveSnapshot = useCallback(() => {
@@ -328,14 +386,22 @@ export default function UnitScheduleModule({ projectInfo }) {
     toast.success(`Snapshot "${snapshot.projectName}" saved`);
   }, [projectInfo, serviceRows, packagedRows, splitRows, wallMountRows, vrfRows, fanRows, louverDamperRows]);
 
-  // Generic updater
+  // Generic updater — handles nested sub-objects via dot notation:
+  //   'accessories.key'      → merges into row.accessories
+  //   'copper.key'           → merges into row.copper (LME pricing params)
+  //   'copperPricingResult'  → top-level field (API response cache)
+  //   anything else          → top-level field
   const makeUpdater = (setter) =>
     useCallback((id, field, value) => { // eslint-disable-line react-hooks/rules-of-hooks
       setter(prev => prev.map(r => {
         if (r.id !== id) return r;
         if (field.startsWith('accessories.')) {
-          const k = field.split('.')[1];
+          const k = field.split('.').slice(1).join('.');
           return { ...r, accessories: { ...r.accessories, [k]: value } };
+        }
+        if (field.startsWith('copper.')) {
+          const k = field.split('.').slice(1).join('.');
+          return { ...r, copper: { ...(r.copper || {}), [k]: value } };
         }
         return { ...r, [field]: value };
       }));
@@ -444,6 +510,60 @@ export default function UnitScheduleModule({ projectInfo }) {
     a.download = 'unit_schedule.csv';
     a.click();
     toast.success('Unit Schedule exported');
+  };
+
+  // ── Inline Copper Settings handlers ────────────────────────────────────────
+  const cs = pricingConfig?.copperSettings ?? DEFAULT_COPPER_SETTINGS;
+
+  const setCopperField = (key, value) =>
+    setCopperDraft(prev => ({ ...(prev ?? cs), [key]: value }));
+
+  const setCopperSafetyFactor = (equipType, value) =>
+    setCopperDraft(prev => {
+      const base = prev ?? cs;
+      return { ...base, safetyFactors: { ...base.safetyFactors, [equipType]: value } };
+    });
+
+  const applyCopperSettings = async () => {
+    const draft = copperDraft;
+    if (!draft) return;
+    if (!activeProjectId) return; // guard — should never happen now that button is disabled
+    try {
+      // Send ONLY the copperSettings key — never spread entire pricingConfig,
+      // which would write all rates as project overrides even if unchanged.
+      await savePricingConfig({ copperSettings: draft });
+      setCopperDraft(null);
+      toast.success('Copper settings saved for this project');
+    } catch { toast.error('Could not save copper settings'); }
+  };
+
+  // ── Inline Accessory Price handlers ──────────────────────────────────────
+  const handleAccSet = (section, key, value) =>
+    setAccDraft(prev => {
+      const ao = prev ?? accessoryPriceOverrides;
+      return { ...ao, [section]: { ...ao[section], [key]: value } };
+    });
+
+  const handleAccReset = (section, key) =>
+    setAccDraft(prev => {
+      const ao = prev ?? accessoryPriceOverrides;
+      const next = { ...ao[section] };
+      delete next[key];
+      return { ...ao, [section]: next };
+    });
+
+  const handleAccResetAll = () => setAccDraft(DEFAULT_ACCESSORY_OVERRIDES);
+
+  const applyAccSettings = async () => {
+    const draft = accDraft;
+    if (!draft) return;
+    if (!activeProjectId) return; // guard — should never happen now that button is disabled
+    try {
+      // Send ONLY accessoryPriceOverrides — never spread entire pricingConfig.
+      await savePricingConfig({ accessoryPriceOverrides: draft });
+      setAccDraft(null);
+      toast.success('Accessory prices saved for this project');
+    } catch { toast.error('Could not save accessory prices'); }
   };
 
   const rowCounts = {
@@ -584,6 +704,10 @@ export default function UnitScheduleModule({ projectInfo }) {
 
   return (
     <div className="max-w-full">
+      <EstimateProjectBanner
+        projectId={projectId} projectName={projectName}
+        saving={saving} lastSaved={lastSaved} saveError={saveError}
+      />
       <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Unit Schedule</h1>
@@ -614,15 +738,20 @@ export default function UnitScheduleModule({ projectInfo }) {
               <Play size={15} /> Load Demo
             </button>
           )}
-          <button onClick={() => { setShowPrices(v => !v); setShowTechRates(false); }}
-            className={`btn-secondary flex items-center gap-2 text-sm ${showPrices ? 'ring-2 ring-amber-400' : ''}`}
-            title="Override accessory material prices per unit type">
-            <Tag size={15} /> Acc. Prices
-          </button>
-          <button onClick={() => { setShowTechRates(v => !v); setShowPrices(false); }}
+          <button onClick={() => setShowTechRates(v => !v)}
             className={`btn-secondary flex items-center gap-2 text-sm ${showTechRates ? 'ring-2 ring-blue-400' : ''}`}
             title="Adjust labor rates per unit type">
             <Settings2 size={15} /> Labor Rates
+          </button>
+          <button onClick={() => { setShowCopperSettings(v => !v); setShowAccSettings(false); }}
+            className={`btn-secondary flex items-center gap-2 text-sm ${showCopperSettings ? 'ring-2 ring-orange-400' : ''}`}
+            title="Copper & refrigerant settings">
+            <Zap size={15} /> Copper
+          </button>
+          <button onClick={() => { setShowAccSettings(v => !v); setShowCopperSettings(false); }}
+            className={`btn-secondary flex items-center gap-2 text-sm ${showAccSettings ? 'ring-2 ring-amber-400' : ''}`}
+            title="Accessory material price overrides">
+            <LayoutList size={15} /> Acc. Prices
           </button>
           <button onClick={saveSnapshot} className="btn-secondary flex items-center gap-2 text-sm"
             title="Save a snapshot of this project for use in 'Copy from project'">
@@ -680,15 +809,131 @@ export default function UnitScheduleModule({ projectInfo }) {
         </div>
       )}
 
-      {/* ── Accessory Price Settings Panel ────────────────────────────────── */}
-      {showPrices && (
-        <AccessoryPriceSettings
-          overrides={priceOverrides}
-          onSet={handlePriceSet}
-          onReset={handlePriceReset}
-          onResetAll={handlePriceResetAll}
-          onClose={() => setShowPrices(false)}
-        />
+      {/* ── Inline Copper Settings Panel ──────────────────────────────────── */}
+      {showCopperSettings && (
+        <div className="card p-4 mb-4 border-orange-200 bg-orange-50/30">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h3 className="font-semibold text-gray-700 text-sm flex items-center gap-1.5">
+                <Zap size={14} className="text-orange-500" /> Copper &amp; Refrigerant Settings
+              </h3>
+              <p className="text-xs text-gray-400 mt-0.5">
+                {activeProjectId
+                  ? 'Changes saved for this project only — company defaults unchanged.'
+                  : <span className="text-amber-600">Open a project to save these settings.</span>}
+                {' '}Per-row inputs (pipe type, run length) stay inside each row.
+                {copperDraft && <span className="text-amber-600 font-medium"> · Unsaved changes</span>}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {copperDraft && (
+                <button
+                  onClick={applyCopperSettings}
+                  disabled={!activeProjectId}
+                  title={!activeProjectId ? 'Open a project first — company defaults can only be changed in Settings' : undefined}
+                  className="text-xs bg-orange-500 text-white rounded px-3 py-1 hover:bg-orange-600 font-semibold disabled:opacity-40 disabled:cursor-not-allowed">
+                  Save to Project
+                </button>
+              )}
+              <button onClick={() => { setShowCopperSettings(false); setCopperDraft(null); }}
+                className="text-xs text-gray-400 hover:text-gray-600">Close</button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+            {/* LME Price */}
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">LME Copper Price ($/lb)</label>
+              <div className="relative">
+                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                <input type="number" min="0" step="0.01"
+                  value={(copperDraft ?? cs).lmeCopperPrice ?? 4.25}
+                  onChange={e => setCopperField('lmeCopperPrice', parseFloat(e.target.value) || 4.25)}
+                  className="input text-sm pl-5 w-full"
+                />
+              </div>
+              <p className="text-xs text-gray-400 mt-0.5">Baseline $4.25/lb</p>
+            </div>
+            {/* Cylinder Price */}
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">Refrig. Cylinder Price ($)</label>
+              <div className="relative">
+                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                <input type="number" min="0" step="5"
+                  value={(copperDraft ?? cs).refrigCylinderPrice ?? 280}
+                  onChange={e => setCopperField('refrigCylinderPrice', parseFloat(e.target.value) || 280)}
+                  className="input text-sm pl-5 w-full"
+                />
+              </div>
+              <p className="text-xs text-gray-400 mt-0.5">Default $280 · anchors refrig. table</p>
+            </div>
+          </div>
+
+          {/* Safety Factors */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 mb-2">Safety / Contingency Factors</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { key: 'split',       label: 'Split Systems'  },
+                { key: 'wallMounted', label: 'Wall Mounted'   },
+                { key: 'vrv',         label: 'VRF Systems'    },
+                { key: 'ahuWithCU',   label: 'AHU with CU'   },
+              ].map(({ key, label }) => (
+                <div key={key}>
+                  <label className="text-xs text-gray-500 block mb-1">{label}</label>
+                  <div className="relative">
+                    <input type="number" min="1.0" max="2.0" step="0.01"
+                      value={(copperDraft ?? cs).safetyFactors?.[key] ?? DEFAULT_COPPER_SETTINGS.safetyFactors[key]}
+                      onChange={e => setCopperSafetyFactor(key, parseFloat(e.target.value) || 1.0)}
+                      className="input text-sm pr-6 w-full"
+                    />
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">×</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Inline Accessory Price Settings Panel ─────────────────────────── */}
+      {showAccSettings && (
+        <div className="card p-4 mb-4 border-amber-200 bg-amber-50/20">
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <h3 className="font-semibold text-gray-700 text-sm flex items-center gap-1.5">
+                <LayoutList size={14} className="text-amber-600" /> Accessory Material Price Overrides
+              </h3>
+              <p className="text-xs text-gray-400 mt-0.5">
+                {activeProjectId
+                  ? 'Changes saved for this project only — company defaults unchanged.'
+                  : <span className="text-amber-600">Open a project to save these settings.</span>}
+                {' '}Leave blank to use default tonnage-based table.
+                {accDraft && <span className="text-amber-600 font-medium"> · Unsaved changes</span>}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {accDraft && (
+                <button
+                  onClick={applyAccSettings}
+                  disabled={!activeProjectId}
+                  title={!activeProjectId ? 'Open a project first — company defaults can only be changed in Settings' : undefined}
+                  className="text-xs bg-amber-500 text-white rounded px-3 py-1 hover:bg-amber-600 font-semibold disabled:opacity-40 disabled:cursor-not-allowed">
+                  Save to Project
+                </button>
+              )}
+              <button onClick={() => { setShowAccSettings(false); setAccDraft(null); }}
+                className="text-xs text-gray-400 hover:text-gray-600">Close</button>
+            </div>
+          </div>
+          <AccessoryPriceSettings
+            standalone
+            overrides={effAccOverrides}
+            onSet={handleAccSet}
+            onReset={handleAccReset}
+            onResetAll={handleAccResetAll}
+          />
+        </div>
       )}
 
       <UnitSummaryPanel summary={summary} />

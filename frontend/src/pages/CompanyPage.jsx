@@ -18,10 +18,9 @@ const cards = [
   {
     icon: Users,
     label: 'Team',
-    description: 'Manage employees and their roles',
+    description: 'Invite employees, manage roles and access',
     href: '/team',
     color: 'green',
-    soon: true,
   },
   {
     icon: BarChart3,

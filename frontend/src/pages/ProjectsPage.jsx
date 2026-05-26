@@ -6,6 +6,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { projectsApi } from '@services/projectsApi';
+import { useAuth } from '@contexts/AuthContext';
 import {
   FolderOpen, Plus, Search, Loader2, AlertCircle,
   MapPin, Calendar, User, ChevronRight, Building2,
@@ -189,6 +190,8 @@ function ProjectCard({ project, onClick }) {
 
 export default function ProjectsPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'ADMIN';
 
   const [projects, setProjects] = useState([]);
   const [loading,  setLoading]  = useState(true);
@@ -227,14 +230,23 @@ export default function ProjectsPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Projects</h1>
+          <h1 className="text-2xl font-bold text-gray-900">
+            {isAdmin ? 'All Projects' : 'My Projects'}
+          </h1>
           <p className="text-sm text-gray-400 mt-0.5">
-            {loading ? '…' : `${projects.length} project${projects.length !== 1 ? 's' : ''}`}
+            {loading
+              ? '…'
+              : isAdmin
+                ? `${projects.length} project${projects.length !== 1 ? 's' : ''} across your company`
+                : `${projects.length} project${projects.length !== 1 ? 's' : ''} assigned to you`
+            }
           </p>
         </div>
-        <button onClick={() => setModal(true)} className="btn-primary flex items-center gap-2 px-4 py-2">
-          <Plus size={16} /> New project
-        </button>
+        {isAdmin && (
+          <button onClick={() => setModal(true)} className="btn-primary flex items-center gap-2 px-4 py-2">
+            <Plus size={16} /> New project
+          </button>
+        )}
       </div>
 
       {/* Search */}
@@ -265,10 +277,18 @@ export default function ProjectsPage() {
           {projects.length === 0 ? (
             <>
               <p className="text-gray-500 font-medium">No projects yet</p>
-              <p className="text-gray-400 text-sm mt-1">Create your first project to get started.</p>
-              <button onClick={() => setModal(true)} className="btn-primary mt-4 px-5 py-2 flex items-center gap-2 mx-auto">
-                <Plus size={15} /> New project
-              </button>
+              {isAdmin ? (
+                <>
+                  <p className="text-gray-400 text-sm mt-1">Create your first project to get started.</p>
+                  <button onClick={() => setModal(true)} className="btn-primary mt-4 px-5 py-2 flex items-center gap-2 mx-auto">
+                    <Plus size={15} /> New project
+                  </button>
+                </>
+              ) : (
+                <p className="text-gray-400 text-sm mt-1">
+                  You haven't been assigned to any projects yet. Ask your admin to add you.
+                </p>
+              )}
             </>
           ) : (
             <>
