@@ -27,6 +27,7 @@ const DEFAULTS = {
   fanPricingTables:    null,
   diffuserPricing:     null,
   louverPricing:       null,
+  ductPrices:          null,
 };
 
 // ── Normalize response — expose accessoryPriceOverrides alias ────────────────
@@ -58,7 +59,7 @@ async function upsertPricingConfig({ companyId, data }) {
     'overheadPct','profitPct','taxPct','ductWastePct','pipeWastePct',
     'accessoryOverrides','unitPricingTables','ductPricingTables',
     'pipePricingTables','fanPricingTables','diffuserPricing','louverPricing',
-    'copperSettings',
+    'copperSettings','ductPrices',
   ];
 
   const payload = {};

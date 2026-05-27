@@ -16,7 +16,7 @@ import {
   ArrowLeft, Building2, Wind, Gauge, Fan, Zap, BarChart3,
   MapPin, Calendar, User, Briefcase, ChevronRight,
   Edit3, Loader2, AlertCircle, CheckCircle2, Clock,
-  Layers, PlusCircle, Trash2, X, Save, Users, UserPlus,
+  Layers, Trash2, X, Save, Users, UserPlus,
 } from 'lucide-react';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -176,56 +176,108 @@ function EditProjectModal({ project, open, onClose, onSaved }) {
   );
 }
 
-// ── Module Card ───────────────────────────────────────────────────────────────
+// ── Module Tracker ────────────────────────────────────────────────────────────
 
-function ModuleCard({ mod, estimate, onClick }) {
-  const Icon   = mod.icon;
-  const colors = COLOR_CLASSES[mod.color];
-  const saved  = !!estimate;
-  const total  = estimate ? currency(estimate.totalCost)     : null;
-  const mat    = estimate ? currency(estimate.totalMaterial) : null;
-  const lab    = estimate ? currency(estimate.totalLabor)    : null;
-  const when   = estimate ? fmtRelative(estimate.updatedAt)  : null;
+function ModuleTracker({ modules, estimateByModule, projectId, onOpen }) {
+  const savedCount = modules.filter(m => estimateByModule[m.key]).length;
+  const pct        = Math.round((savedCount / modules.length) * 100);
 
   return (
-    <button
-      onClick={onClick}
-      className="w-full text-left p-5 rounded-xl border border-gray-200 bg-white hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 flex flex-col gap-3"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className={`w-10 h-10 rounded-lg ${colors.bg} ${colors.border} border flex items-center justify-center flex-shrink-0`}>
-          <Icon size={18} className={colors.icon} />
+    <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+
+      {/* Progress header */}
+      <div className="px-5 py-4 border-b border-gray-100">
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-sm font-semibold text-gray-700">Estimation modules</h2>
+          <span className="text-sm font-semibold text-gray-900">{savedCount}/{modules.length} complete</span>
         </div>
-        <div className="flex-1 min-w-0">
-          <div className="font-semibold text-gray-900 text-sm truncate">{mod.label}</div>
-          <div className="text-xs text-gray-400 mt-0.5">{mod.description}</div>
+        <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+          <div
+            className="h-full rounded-full transition-all duration-500"
+            style={{
+              width: `${pct}%`,
+              background: pct === 100
+                ? 'linear-gradient(90deg,#22c55e,#16a34a)'
+                : 'linear-gradient(90deg,#3b82f6,#6366f1)',
+            }}
+          />
         </div>
-        {saved
-          ? <CheckCircle2 size={16} className="text-green-500 flex-shrink-0 mt-1" />
-          : <PlusCircle   size={16} className="text-gray-300 flex-shrink-0 mt-1" />}
       </div>
 
-      {saved && total ? (
-        <div>
-          <div className="text-xl font-bold text-gray-900">{total}</div>
-          <div className="flex gap-3 mt-1 text-xs text-gray-400">
-            {mat && <span>Mat: {mat}</span>}
-            {lab && <span>Lab: {lab}</span>}
-          </div>
-        </div>
-      ) : (
-        <div className="text-sm text-gray-400 italic">Not started</div>
-      )}
+      {/* Module rows */}
+      <ul className="divide-y divide-gray-50">
+        {modules.map(mod => {
+          const Icon     = mod.icon;
+          const colors   = COLOR_CLASSES[mod.color];
+          const estimate = estimateByModule[mod.key] || null;
+          const saved    = !!estimate;
+          const total    = estimate ? currency(estimate.totalCost)     : null;
+          const mat      = estimate ? currency(estimate.totalMaterial) : null;
+          const lab      = estimate ? currency(estimate.totalLabor)    : null;
+          const when     = estimate ? fmtRelative(estimate.updatedAt)  : null;
 
-      <div className="flex items-center justify-between mt-auto pt-1 border-t border-gray-50">
-        {when
-          ? <span className="text-xs text-gray-400 flex items-center gap-1"><Clock size={10} /> Saved {when}</span>
-          : <span className="text-xs text-gray-300">No data saved</span>}
-        <span className="text-xs font-medium text-blue-600 flex items-center gap-0.5">
-          Open <ChevronRight size={12} />
-        </span>
-      </div>
-    </button>
+          return (
+            <li
+              key={mod.key}
+              className="flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50/60 transition-colors group"
+            >
+              {/* Status dot */}
+              <div className="flex-shrink-0">
+                {saved
+                  ? <CheckCircle2 size={16} className="text-green-500" />
+                  : <div className="w-4 h-4 rounded-full border-2 border-gray-200" />}
+              </div>
+
+              {/* Icon */}
+              <div className={`w-8 h-8 rounded-lg ${colors.bg} ${colors.border} border flex items-center justify-center flex-shrink-0`}>
+                <Icon size={14} className={colors.icon} />
+              </div>
+
+              {/* Label + description */}
+              <div className="w-40 flex-shrink-0">
+                <div className="text-sm font-semibold text-gray-900">{mod.label}</div>
+                <div className="text-xs text-gray-400 truncate">{mod.description}</div>
+              </div>
+
+              {/* Totals */}
+              <div className="flex-1 flex items-center gap-6 min-w-0">
+                {saved && total ? (
+                  <>
+                    <span className="text-sm font-bold text-gray-900 w-24 text-right tabular-nums">{total}</span>
+                    <span className="text-xs text-gray-400 tabular-nums hidden sm:block">
+                      Mat: {mat ?? '—'}
+                    </span>
+                    <span className="text-xs text-gray-400 tabular-nums hidden sm:block">
+                      Lab: {lab ?? '—'}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-xs text-gray-300 italic">Not started</span>
+                )}
+              </div>
+
+              {/* Last saved */}
+              <div className="text-xs text-gray-400 w-20 text-right flex-shrink-0 hidden md:block">
+                {when ? (
+                  <span className="flex items-center justify-end gap-1">
+                    <Clock size={10} /> {when}
+                  </span>
+                ) : null}
+              </div>
+
+              {/* Open button */}
+              <button
+                onClick={() => onOpen(mod)}
+                className="flex-shrink-0 flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800 px-3 py-1.5 rounded-lg hover:bg-blue-50 transition-colors"
+              >
+                {saved ? 'Open' : 'Start'}
+                <ChevronRight size={12} />
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 
@@ -493,22 +545,13 @@ export default function ProjectDetailPage() {
         <ProjectSettingsOverride projectId={project.id} />
       </div>
 
-      {/* Modules section */}
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-base font-semibold text-gray-900">Estimation modules</h2>
-        <span className="text-sm text-gray-400">{savedCount}/{MODULES.length} saved</span>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {MODULES.map(mod => (
-          <ModuleCard
-            key={mod.key}
-            mod={mod}
-            estimate={estimateByModule[mod.key] || null}
-            onClick={() => navigate(`${mod.route}?projectId=${project.id}`)}
-          />
-        ))}
-      </div>
+      {/* Module tracker */}
+      <ModuleTracker
+        modules={MODULES}
+        estimateByModule={estimateByModule}
+        projectId={project.id}
+        onOpen={(mod) => navigate(`${mod.route}?projectId=${project.id}`)}
+      />
 
       {/* Member management — admin only */}
       {user?.role === 'ADMIN' && (

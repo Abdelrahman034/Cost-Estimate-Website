@@ -7,6 +7,8 @@ import DiffuserRow from './DiffuserRow';
 import DiffuserTotals from './DiffuserTotals';
 import DiffuserPriceSettings from './DiffuserPriceSettings';
 import { useEstimate } from '@hooks/useEstimate';
+import { useAutoSave } from '@hooks/useAutoSave';
+import { useSettingsAutoSave } from '@hooks/useSettingsAutoSave';
 import EstimateProjectBanner from '@components/EstimateProjectBanner';
 import { SettingsContext } from '@contexts/SettingsContext';
 
@@ -47,7 +49,7 @@ function buildCalcSettings(settings) {
 
 // ─── Main Module ──────────────────────────────────────────────────────────────
 export default function DiffuserModule() {
-  const { pricingConfig } = useContext(SettingsContext);
+  const { pricingConfig, savePricingConfig, activeProjectId } = useContext(SettingsContext);
 
   const [rows, setRows]               = useState([newRow(), newRow(), newRow()]);
   const [results, setResults]         = useState(null);
@@ -55,14 +57,41 @@ export default function DiffuserModule() {
   const [settings, setSettings]       = useState(() => ({
     ...DEFAULT_SETTINGS,
     grdRate: pricingConfig.rateDuct ?? DEFAULT_SETTINGS.grdRate,
+    ...(pricingConfig.diffuserSettings ?? {}),
   }));
   const [showSettings, setShowSettings] = useState(false);
   const { projectId, projectName, loadEstimate, saveEstimate, saving, lastSaved, saveError } = useEstimate('DIFFUSER_SCHEDULE');
 
-  // Sync grdRate when project settings change
+  // ── Auto-save rows ─────────────────────────────────────────────────────────
+  const { markAsLoaded } = useAutoSave(
+    rows,
+    () => saveEstimate({ rowsJson: rows }),
+    !!projectId,
+  );
+
+  // ── Auto-save diffuser settings ────────────────────────────────────────────
+  const settingsSnapshotRef = useSettingsAutoSave(settings, activeProjectId, () =>
+    savePricingConfig({
+      diffuserSettings: {
+        customPrices: settings.customPrices,
+        miscPct:      settings.miscPct,
+        frameCost:    settings.frameCost,
+        grdRate:      settings.grdRate,
+      },
+    }),
+  );
+
+  // Sync grdRate + project diffuserSettings when pricingConfig changes (e.g. after project load)
   useEffect(() => {
-    setSettings(prev => ({ ...prev, grdRate: pricingConfig.rateDuct ?? DEFAULT_SETTINGS.grdRate }));
-  }, [pricingConfig.rateDuct]); // eslint-disable-line react-hooks/exhaustive-deps
+    const overrides = pricingConfig.diffuserSettings ?? {};
+    const newSettings = {
+      ...settings,
+      grdRate: pricingConfig.rateDuct ?? DEFAULT_SETTINGS.grdRate,
+      ...overrides,
+    };
+    settingsSnapshotRef.current = JSON.stringify(newSettings); // don't count DB-sync as dirty
+    setSettings(newSettings);
+  }, [pricingConfig.rateDuct, pricingConfig.diffuserSettings]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load from DB if in project context, otherwise fall back to demo mode
   useEffect(() => {
@@ -70,6 +99,9 @@ export default function DiffuserModule() {
       loadEstimate().then(est => {
         if (est?.rowsJson && Array.isArray(est.rowsJson) && est.rowsJson.length > 0) {
           setRows(est.rowsJson);
+          markAsLoaded(est.rowsJson);
+        } else {
+          markAsLoaded(null);
         }
       });
       return;
@@ -83,7 +115,7 @@ export default function DiffuserModule() {
         }
       } catch (_) {}
     }
-  }, [loadEstimate, projectId]);
+  }, [loadEstimate, projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Calculate ───────────────────────────────────────────────────────────────
   const calculate = useCallback(() => {
@@ -211,12 +243,30 @@ export default function DiffuserModule() {
         </div>
       </div>
 
-      {/* ── Price Settings Panel ────────────────────────────────────────────── */}
+      {/* ── Price Settings Panel — project-scoped when a project is open ────── */}
       {showSettings && (
         <DiffuserPriceSettings
           settings={settings}
           onSettingsChange={setSettings}
           onClose={() => setShowSettings(false)}
+          activeProjectId={activeProjectId}
+          onProjectSave={async (draft) => {
+            // Always update local state so UI reflects the change immediately
+            setSettings(draft);
+            try {
+              await savePricingConfig({
+                diffuserSettings: {
+                  customPrices: draft.customPrices,
+                  miscPct:      draft.miscPct,
+                  frameCost:    draft.frameCost,
+                  grdRate:      draft.grdRate,
+                },
+              });
+              toast.success('Diffuser settings saved to project');
+            } catch {
+              toast.error('Could not save diffuser settings');
+            }
+          }}
         />
       )}
 

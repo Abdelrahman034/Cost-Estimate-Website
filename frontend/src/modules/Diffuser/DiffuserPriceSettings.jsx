@@ -229,8 +229,13 @@ export default function DiffuserPriceSettings({
       </div>
 
       <div className="flex items-center gap-3">
-        <button onClick={handleSave} className="btn-primary text-sm">
-          Save Settings
+        <button
+          onClick={handleSave}
+          disabled={saveDisabled}
+          title={saveTitle}
+          className={`btn-primary text-sm ${saveDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+        >
+          {saveLabel}
         </button>
         <button onClick={onClose} className="btn-secondary text-sm">
           Cancel

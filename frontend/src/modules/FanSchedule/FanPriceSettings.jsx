@@ -8,7 +8,14 @@ import {
   FAN_TYPES,
 } from '@utils/fanScheduleCalculations';
 
-export default function FanPriceSettings({ settings, onSettingsChange, onClose }) {
+/**
+ * FanPriceSettings — Fan schedule configuration panel.
+ *
+ * Settings update live in local state via onSettingsChange.
+ * When activeProjectId + onProjectSave are provided, an explicit
+ * "Save to Project" button persists the current values to the project.
+ */
+export default function FanPriceSettings({ settings, onSettingsChange, onClose, activeProjectId, onProjectSave }) {
   const update = (key, value) => onSettingsChange((prev) => ({ ...prev, [key]: value }));
 
   const reset = () =>
@@ -18,6 +25,10 @@ export default function FanPriceSettings({ settings, onSettingsChange, onClose }
       miscPct:     DEFAULT_MISC_PCT,
       laborRate:   DEFAULT_LABOR_RATE,
     });
+
+  const projectMode  = typeof onProjectSave === 'function';
+  const saveDisabled = projectMode && !activeProjectId;
+  const saveTitle    = saveDisabled ? 'Open a project to save fan settings.' : undefined;
 
   return (
     <div className="card mb-6 border-blue-200 bg-blue-50/40">
@@ -32,6 +43,13 @@ export default function FanPriceSettings({ settings, onSettingsChange, onClose }
           </button>
         </div>
       </div>
+
+      {/* Project-mode hint */}
+      {projectMode && !activeProjectId && (
+        <div className="mb-4 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
+          Open a project to save fan settings to that project only.
+        </div>
+      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5">
         {/* Labor Rate */}
@@ -119,6 +137,20 @@ export default function FanPriceSettings({ settings, onSettingsChange, onClose }
           <p className="text-[10px] text-gray-400 mt-0.5">Excel default: ${DEFAULT_WALL_PEN_COST}</p>
         </div>
       </div>
+
+      {/* Save to Project button */}
+      {projectMode && (
+        <div className="mb-4">
+          <button
+            onClick={() => onProjectSave(settings)}
+            disabled={saveDisabled}
+            title={saveTitle}
+            className={`btn-primary text-sm ${saveDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            Save to Project
+          </button>
+        </div>
+      )}
 
       {/* Labor reference table */}
       <div>

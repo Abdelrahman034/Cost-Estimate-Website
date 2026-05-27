@@ -371,6 +371,10 @@ model PricingConfig {
   // Copper pricing settings (LME price, safety factors, defaults)
   copperSettings    Json? @map("copper_settings")
 
+  // Metal Duct module material/labor rates
+  // e.g. { sheetMetalCostPerLb, insulationPerSqFt, sheetMetalLaborPerFt, ... }
+  ductPrices        Json? @map("duct_prices")
+
   updatedAt DateTime @updatedAt @map("updated_at")
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)

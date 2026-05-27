@@ -11,13 +11,11 @@
  *   • Editable override input
  *   • × reset button
  */
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { RotateCcw, Tag } from 'lucide-react';
 import {
-  PKG_ACCESSORY_TABLES,
-  SPLIT_ACCESSORY_TABLES,
-  WALL_MOUNT_ACCESSORY_TABLES,
-  VRF_ACCESSORY_TABLES,
+  DEFAULT_UNIT_PRICING_TABLES,
+  mergeUnitPricingTables,
   lookupByTons,
 } from '@utils/unitScheduleCalculations';
 
@@ -30,24 +28,24 @@ function refPrice(table) {
 
 // ── Section / accessory definitions ─────────────────────────────────────────
 
-const SECTIONS = [
+const buildSections = (tables) => [
   {
     key:   'packaged',
     label: 'Packaged RTU',
     color: 'purple',
     accessories: [
-      { key: 'standardCurb',  label: 'Standard Curb',   table: PKG_ACCESSORY_TABLES.standardCurb,  byTon: true },
-      { key: 'metalRoofCurb', label: 'Metal Roof Curb', table: PKG_ACCESSORY_TABLES.metalRoofCurb, byTon: true },
-      { key: 'curbAdapter',   label: 'Curb Adapter',    table: PKG_ACCESSORY_TABLES.curbAdapter,   byTon: true },
-      { key: 'economizer',    label: 'Economizer',      table: PKG_ACCESSORY_TABLES.economizer,    byTon: true },
-      { key: 'newDrops',      label: 'New Drops',       table: PKG_ACCESSORY_TABLES.newDrops,      byTon: true },
-      { key: 'drumLouvers',   label: 'Drum Louvers',    table: PKG_ACCESSORY_TABLES.drumLouvers,   byTon: true },
-      { key: 'pvcCond',       label: 'PVC Condensate',  table: PKG_ACCESSORY_TABLES.pvcCond },
-      { key: 'cuCond',        label: 'CU Condensate',   table: PKG_ACCESSORY_TABLES.cuCond },
-      { key: 'thermostat',    label: 'Thermostat',      table: PKG_ACCESSORY_TABLES.thermostat },
-      { key: 'statWire',      label: 'Stat Wire',       table: PKG_ACCESSORY_TABLES.statWire },
-      { key: 'smokeDetector', label: 'Smoke Detector',  table: PKG_ACCESSORY_TABLES.smokeDetector },
-      { key: 'sensors',       label: 'Sensor (each)',   table: PKG_ACCESSORY_TABLES.sensors },
+      { key: 'standardCurb',  label: 'Standard Curb',   table: tables.packaged.accessories.standardCurb,  byTon: true },
+      { key: 'metalRoofCurb', label: 'Metal Roof Curb', table: tables.packaged.accessories.metalRoofCurb, byTon: true },
+      { key: 'curbAdapter',   label: 'Curb Adapter',    table: tables.packaged.accessories.curbAdapter,   byTon: true },
+      { key: 'economizer',    label: 'Economizer',      table: tables.packaged.accessories.economizer,    byTon: true },
+      { key: 'newDrops',      label: 'New Drops',       table: tables.packaged.accessories.newDrops,      byTon: true },
+      { key: 'drumLouvers',   label: 'Drum Louvers',    table: tables.packaged.accessories.drumLouvers,   byTon: true },
+      { key: 'pvcCond',       label: 'PVC Condensate',  table: tables.packaged.accessories.pvcCond },
+      { key: 'cuCond',        label: 'CU Condensate',   table: tables.packaged.accessories.cuCond },
+      { key: 'thermostat',    label: 'Thermostat',      table: tables.packaged.accessories.thermostat },
+      { key: 'statWire',      label: 'Stat Wire',       table: tables.packaged.accessories.statWire },
+      { key: 'smokeDetector', label: 'Smoke Detector',  table: tables.packaged.accessories.smokeDetector },
+      { key: 'sensors',       label: 'Sensor (each)',   table: tables.packaged.accessories.sensors },
     ],
   },
   {
@@ -55,21 +53,21 @@ const SECTIONS = [
     label: 'Standard Split',
     color: 'green',
     accessories: [
-      { key: 'condenserRails',  label: 'Condenser Rails',   table: SPLIT_ACCESSORY_TABLES.condenserRails,  byTon: true },
-      { key: 'drainPan',        label: 'Drain Pan',         table: SPLIT_ACCESSORY_TABLES.drainPan,        byTon: true },
-      { key: 'cuLineUnder100',  label: 'CU Line <100 ft',   table: SPLIT_ACCESSORY_TABLES.cuLineUnder100,  byTon: true },
-      { key: 'cuLineOver100',   label: 'CU Line >100 ft',   table: SPLIT_ACCESSORY_TABLES.cuLineOver100,   byTon: true },
-      { key: 'cuRollUnder100',  label: 'CU Roll <100 ft',   table: SPLIT_ACCESSORY_TABLES.cuRollUnder100,  byTon: true },
-      { key: 'cuRollOver100',   label: 'CU Roll >100 ft',   table: SPLIT_ACCESSORY_TABLES.cuRollOver100,   byTon: true },
-      { key: 'oaDamper',        label: 'OA Damper',         table: SPLIT_ACCESSORY_TABLES.oaDamper,        byTon: true },
-      { key: 'ductTransitions', label: 'Duct Transitions',  table: SPLIT_ACCESSORY_TABLES.ductTransitions, byTon: true },
-      { key: 'floatSwitch',     label: 'Float Switch',      table: SPLIT_ACCESSORY_TABLES.floatSwitch },
-      { key: 'pvcCond',         label: 'PVC Condensate',    table: SPLIT_ACCESSORY_TABLES.pvcCond },
-      { key: 'cuCond',          label: 'CU Condensate',     table: SPLIT_ACCESSORY_TABLES.cuCond },
-      { key: 'thermostat',      label: 'Thermostat',        table: SPLIT_ACCESSORY_TABLES.thermostat },
-      { key: 'statWire',        label: 'Stat Wire',         table: SPLIT_ACCESSORY_TABLES.statWire },
-      { key: 'smokeDetector',   label: 'Smoke Detector',    table: SPLIT_ACCESSORY_TABLES.smokeDetector },
-      { key: 'sensors',         label: 'Sensor (each)',     table: SPLIT_ACCESSORY_TABLES.sensors },
+      { key: 'condenserRails',  label: 'Condenser Rails',   table: tables.split.accessories.condenserRails,  byTon: true },
+      { key: 'drainPan',        label: 'Drain Pan',         table: tables.split.accessories.drainPan,        byTon: true },
+      { key: 'cuLineUnder100',  label: 'CU Line <100 ft',   table: tables.split.accessories.cuLineUnder100,  byTon: true },
+      { key: 'cuLineOver100',   label: 'CU Line >100 ft',   table: tables.split.accessories.cuLineOver100,   byTon: true },
+      { key: 'cuRollUnder100',  label: 'CU Roll <100 ft',   table: tables.split.accessories.cuRollUnder100,  byTon: true },
+      { key: 'cuRollOver100',   label: 'CU Roll >100 ft',   table: tables.split.accessories.cuRollOver100,   byTon: true },
+      { key: 'oaDamper',        label: 'OA Damper',         table: tables.split.accessories.oaDamper,        byTon: true },
+      { key: 'ductTransitions', label: 'Duct Transitions',  table: tables.split.accessories.ductTransitions, byTon: true },
+      { key: 'floatSwitch',     label: 'Float Switch',      table: tables.split.accessories.floatSwitch },
+      { key: 'pvcCond',         label: 'PVC Condensate',    table: tables.split.accessories.pvcCond },
+      { key: 'cuCond',          label: 'CU Condensate',     table: tables.split.accessories.cuCond },
+      { key: 'thermostat',      label: 'Thermostat',        table: tables.split.accessories.thermostat },
+      { key: 'statWire',        label: 'Stat Wire',         table: tables.split.accessories.statWire },
+      { key: 'smokeDetector',   label: 'Smoke Detector',    table: tables.split.accessories.smokeDetector },
+      { key: 'sensors',         label: 'Sensor (each)',     table: tables.split.accessories.sensors },
     ],
   },
   {
@@ -77,14 +75,14 @@ const SECTIONS = [
     label: 'Wall Mount',
     color: 'orange',
     accessories: [
-      { key: 'condenserRails', label: 'Condenser Rails', table: WALL_MOUNT_ACCESSORY_TABLES.condenserRails, byTon: true },
-      { key: 'condPump',       label: 'Condensate Pump', table: WALL_MOUNT_ACCESSORY_TABLES.condPump,       byTon: true },
-      { key: 'cuUnder100',     label: 'CU Line <100 ft', table: WALL_MOUNT_ACCESSORY_TABLES.cuUnder100,     byTon: true },
-      { key: 'cuOver100',      label: 'CU Line >100 ft', table: WALL_MOUNT_ACCESSORY_TABLES.cuOver100,      byTon: true },
-      { key: 'pvcCond',        label: 'PVC Condensate',  table: WALL_MOUNT_ACCESSORY_TABLES.pvcCond },
-      { key: 'cuCond',         label: 'CU Condensate',   table: WALL_MOUNT_ACCESSORY_TABLES.cuCond },
-      { key: 'thermostat',     label: 'Thermostat',      table: WALL_MOUNT_ACCESSORY_TABLES.thermostat },
-      { key: 'statWire',       label: 'Stat Wire',       table: WALL_MOUNT_ACCESSORY_TABLES.statWire },
+      { key: 'condenserRails', label: 'Condenser Rails', table: tables.wallMount.accessories.condenserRails, byTon: true },
+      { key: 'condPump',       label: 'Condensate Pump', table: tables.wallMount.accessories.condPump,       byTon: true },
+      { key: 'cuUnder100',     label: 'CU Line <100 ft', table: tables.wallMount.accessories.cuUnder100,     byTon: true },
+      { key: 'cuOver100',      label: 'CU Line >100 ft', table: tables.wallMount.accessories.cuOver100,      byTon: true },
+      { key: 'pvcCond',        label: 'PVC Condensate',  table: tables.wallMount.accessories.pvcCond },
+      { key: 'cuCond',         label: 'CU Condensate',   table: tables.wallMount.accessories.cuCond },
+      { key: 'thermostat',     label: 'Thermostat',      table: tables.wallMount.accessories.thermostat },
+      { key: 'statWire',       label: 'Stat Wire',       table: tables.wallMount.accessories.statWire },
     ],
   },
   {
@@ -92,16 +90,16 @@ const SECTIONS = [
     label: 'VRF System',
     color: 'red',
     accessories: [
-      { key: 'condenserRails',    label: 'Condenser Rails',         table: VRF_ACCESSORY_TABLES.condenserRails,    byTon: true },
-      { key: 'drainPan',          label: 'Drain Pan',               table: VRF_ACCESSORY_TABLES.drainPan,          byTon: true },
-      { key: 'cuLineRatePerFt',   label: 'CU Line Rate ($/ft)',     table: VRF_ACCESSORY_TABLES.cuLineRatePerFt,   byTon: true, unit: '/ft' },
-      { key: 'refrigChargePerTon',label: 'Refrigerant ($/ton)',     table: VRF_ACCESSORY_TABLES.refrigChargePerTon, unit: '/ton' },
-      { key: 'pvcCond',           label: 'PVC Condensate',          table: VRF_ACCESSORY_TABLES.pvcCond },
-      { key: 'cuCond',            label: 'CU Condensate',           table: VRF_ACCESSORY_TABLES.cuCond },
-      { key: 'thermostat',        label: 'Thermostat',              table: VRF_ACCESSORY_TABLES.thermostat },
-      { key: 'statWire',          label: 'Stat Wire',               table: VRF_ACCESSORY_TABLES.statWire },
-      { key: 'smokeDetector',     label: 'Smoke Detector',          table: VRF_ACCESSORY_TABLES.smokeDetector },
-      { key: 'sensors',           label: 'Sensor (each)',           table: VRF_ACCESSORY_TABLES.sensors },
+      { key: 'condenserRails',    label: 'Condenser Rails',         table: tables.vrf.accessories.condenserRails,    byTon: true },
+      { key: 'drainPan',          label: 'Drain Pan',               table: tables.vrf.accessories.drainPan,          byTon: true },
+      { key: 'cuLineRatePerFt',   label: 'CU Line Rate ($/ft)',     table: tables.vrf.accessories.cuLineRatePerFt,   byTon: true, unit: '/ft' },
+      { key: 'refrigChargePerTon',label: 'Refrigerant ($/ton)',     table: tables.vrf.accessories.refrigChargePerTon, unit: '/ton' },
+      { key: 'pvcCond',           label: 'PVC Condensate',          table: tables.vrf.accessories.pvcCond },
+      { key: 'cuCond',            label: 'CU Condensate',           table: tables.vrf.accessories.cuCond },
+      { key: 'thermostat',        label: 'Thermostat',              table: tables.vrf.accessories.thermostat },
+      { key: 'statWire',          label: 'Stat Wire',               table: tables.vrf.accessories.statWire },
+      { key: 'smokeDetector',     label: 'Smoke Detector',          table: tables.vrf.accessories.smokeDetector },
+      { key: 'sensors',           label: 'Sensor (each)',           table: tables.vrf.accessories.sensors },
     ],
   },
 ];
@@ -166,10 +164,15 @@ function AccessoryRow({ acc, sectionKey, overrides, onSet, onReset }) {
 
 // ── Main component ───────────────────────────────────────────────────────────
 
-export default function AccessoryPriceSettings({ overrides, onSet, onReset, onResetAll, onClose = null, standalone = false }) {
+export default function AccessoryPriceSettings({ overrides, pricingTables = null, onSet, onReset, onResetAll, onClose = null, standalone = false }) {
   const [activeTab, setActiveTab] = useState('packaged');
 
-  const section = SECTIONS.find(s => s.key === activeTab);
+  const resolvedTables = useMemo(
+    () => mergeUnitPricingTables(pricingTables || DEFAULT_UNIT_PRICING_TABLES),
+    [pricingTables]
+  );
+  const sections = useMemo(() => buildSections(resolvedTables), [resolvedTables]);
+  const section = sections.find(s => s.key === activeTab);
   const colors  = TAB_COLORS[section?.color] || TAB_COLORS.purple;
 
   // Count active overrides per section
@@ -208,7 +211,7 @@ export default function AccessoryPriceSettings({ overrides, onSet, onReset, onRe
 
       {/* Section tabs */}
       <div className="flex gap-1 border-b border-gray-200 mb-3">
-        {SECTIONS.map(s => {
+        {sections.map(s => {
           const isActive = activeTab === s.key;
           const count    = overrideCount(s.key);
           const c        = TAB_COLORS[s.color];

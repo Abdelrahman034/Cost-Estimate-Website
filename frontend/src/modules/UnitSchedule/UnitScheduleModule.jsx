@@ -12,7 +12,7 @@
  *   • Live Dashboard     — totals written to localStorage for the project dashboard
  *   • Copy From Project  — clone a section from a previously saved project snapshot
  */
-import React, { useState, useCallback, useMemo, useEffect, useContext } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useContext, useRef } from 'react';
 import { Plus, Download, ChevronDown, ChevronUp, Info, Upload, Copy as CopyIcon, Play, Settings2, Zap, LayoutList } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { DEMO_UNIT_SCHEDULE } from '@utils/demoData';
@@ -28,6 +28,7 @@ import {
   SYSTEM_TYPES,
   FAN_TYPES,
   LOUVER_DAMPER_TYPES,
+  DEFAULT_UNIT_PRICING_TABLES,
   TECH_RATE,
   SPLIT_TECH_RATE,
   WALL_MOUNT_TECH_RATE,
@@ -265,41 +266,61 @@ export default function UnitScheduleModule({ projectInfo }) {
   const [louverDamperRows, setLouverDamperRows] = useState([newLouverDamperRow('ld-1')]);
   const { projectId, projectName, loadEstimate, saveEstimate, saving, lastSaved, saveError } = useEstimate('UNIT_SCHEDULE');
 
+  // Prevent auto-save from firing immediately after DB load
+  const loadedRef = useRef(false);
+
   // Effective accessory overrides: local draft (unsaved) takes precedence over global context
   const effAccOverrides = accDraft ?? accessoryPriceOverrides;
+  const unitPricingTables = pricingConfig?.unitPricingTables ?? DEFAULT_UNIT_PRICING_TABLES;
 
   // Inject per-type tech rate + price overrides into each row before batch calc
-  const serviceResults  = useMemo(() => calcServiceBatch(serviceRows), [serviceRows]);
+  const serviceResults  = useMemo(
+    () => calcServiceBatch(serviceRows.map(r => ({ ...r, pricingTables: unitPricingTables }))),
+    [serviceRows, unitPricingTables]
+  );
   const packagedResults = useMemo(
-    () => calcPackagedBatch(packagedRows.map(r => ({ ...r, priceOverrides: effAccOverrides.packaged }))),
-    [packagedRows, effAccOverrides.packaged] // eslint-disable-line react-hooks/exhaustive-deps
+    () => calcPackagedBatch(packagedRows.map(r => ({
+      ...r,
+      priceOverrides: effAccOverrides.packaged,
+      pricingTables:  unitPricingTables,
+    }))),
+    [packagedRows, effAccOverrides.packaged, unitPricingTables] // eslint-disable-line react-hooks/exhaustive-deps
   );
   const splitResults = useMemo(
     () => calcSplitBatch(splitRows.map(r => ({
       ...r,
       techRate:       techRates.split,
       priceOverrides: effAccOverrides.split,
+      pricingTables:  unitPricingTables,
     }))),
-    [splitRows, techRates.split, effAccOverrides.split] // eslint-disable-line react-hooks/exhaustive-deps
+    [splitRows, techRates.split, effAccOverrides.split, unitPricingTables] // eslint-disable-line react-hooks/exhaustive-deps
   );
   const wallMountResults = useMemo(
     () => calcWallMountBatch(wallMountRows.map(r => ({
       ...r,
       techRate:       techRates.wallMount,
       priceOverrides: effAccOverrides.wallMount,
+      pricingTables:  unitPricingTables,
     }))),
-    [wallMountRows, techRates.wallMount, effAccOverrides.wallMount] // eslint-disable-line react-hooks/exhaustive-deps
+    [wallMountRows, techRates.wallMount, effAccOverrides.wallMount, unitPricingTables] // eslint-disable-line react-hooks/exhaustive-deps
   );
   const vrfResults = useMemo(
     () => calcVRFBatch(vrfRows.map(r => ({
       ...r,
       techRate:       techRates.vrf,
       priceOverrides: effAccOverrides.vrf,
+      pricingTables:  unitPricingTables,
     }))),
-    [vrfRows, techRates.vrf, effAccOverrides.vrf] // eslint-disable-line react-hooks/exhaustive-deps
+    [vrfRows, techRates.vrf, effAccOverrides.vrf, unitPricingTables] // eslint-disable-line react-hooks/exhaustive-deps
   );
-  const fanResults          = useMemo(() => calcFanBatch(fanRows),                   [fanRows]);
-  const louverDamperResults = useMemo(() => calcLouverDamperBatch(louverDamperRows), [louverDamperRows]);
+  const fanResults = useMemo(
+    () => calcFanBatch(fanRows.map(r => ({ ...r, pricingTables: unitPricingTables }))),
+    [fanRows, unitPricingTables]
+  );
+  const louverDamperResults = useMemo(
+    () => calcLouverDamperBatch(louverDamperRows.map(r => ({ ...r, pricingTables: unitPricingTables }))),
+    [louverDamperRows, unitPricingTables]
+  );
 
   const summary = useMemo(() => rollUpUnitSummary({
     serviceTotals:      serviceResults.totals,
@@ -319,6 +340,7 @@ export default function UnitScheduleModule({ projectInfo }) {
   // Auto-save to DB (debounced 2s) whenever rows or summary change
   useEffect(() => {
     if (!projectId) return;
+    if (!loadedRef.current) return; // skip until initial load is complete
     const timer = setTimeout(() => {
       saveEstimate({
         rowsJson: {
@@ -337,18 +359,22 @@ export default function UnitScheduleModule({ projectInfo }) {
   useEffect(() => {
     if (projectId) {
       loadEstimate().then(est => {
-        if (!est?.rowsJson || typeof est.rowsJson !== 'object') return;
-        const d = est.rowsJson;
-        if (d.serviceRows?.length)      setServiceRows(d.serviceRows);
-        if (d.packagedRows?.length)     setPackagedRows(d.packagedRows);
-        if (d.splitRows?.length)        setSplitRows(d.splitRows);
-        if (d.wallMountRows?.length)    setWallMountRows(d.wallMountRows);
-        if (d.vrfRows?.length)          setVRFRows(d.vrfRows);
-        if (d.fanRows?.length)          setFanRows(d.fanRows);
-        if (d.louverDamperRows?.length) setLouverDamperRows(d.louverDamperRows);
+        if (est?.rowsJson && typeof est.rowsJson === 'object') {
+          const d = est.rowsJson;
+          if (d.serviceRows?.length)      setServiceRows(d.serviceRows);
+          if (d.packagedRows?.length)     setPackagedRows(d.packagedRows);
+          if (d.splitRows?.length)        setSplitRows(d.splitRows);
+          if (d.wallMountRows?.length)    setWallMountRows(d.wallMountRows);
+          if (d.vrfRows?.length)          setVRFRows(d.vrfRows);
+          if (d.fanRows?.length)          setFanRows(d.fanRows);
+          if (d.louverDamperRows?.length) setLouverDamperRows(d.louverDamperRows);
+        }
+        // Mark load complete so auto-save can begin watching for user edits
+        setTimeout(() => { loadedRef.current = true; }, 100);
       });
       return;
     }
+    loadedRef.current = true; // no project — auto-save disabled anyway, but mark as ready
     if (localStorage.getItem('demo_mode') !== 'true') return;
     try {
       const saved = localStorage.getItem('demo_unit_schedule');
@@ -929,6 +955,7 @@ export default function UnitScheduleModule({ projectInfo }) {
           <AccessoryPriceSettings
             standalone
             overrides={effAccOverrides}
+            pricingTables={unitPricingTables}
             onSet={handleAccSet}
             onReset={handleAccReset}
             onResetAll={handleAccResetAll}

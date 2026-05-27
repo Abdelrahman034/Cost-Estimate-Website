@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useContext, useEffect } from 'react';
 import { Plus, Trash2, Download, Settings2, Zap, Play } from 'lucide-react';
 import { DEMO_ELEC_HEAT } from '@utils/demoData';
 import toast from 'react-hot-toast';
@@ -10,7 +10,10 @@ import { saveModuleTotals } from '@utils/projectTotals';
 import ElectricHeatRow from './ElectricHeatRow';
 import ElectricHeatTotals from './ElectricHeatTotals';
 import { useEstimate } from '@hooks/useEstimate';
+import { useAutoSave } from '@hooks/useAutoSave';
+import { useSettingsAutoSave } from '@hooks/useSettingsAutoSave';
 import EstimateProjectBanner from '@components/EstimateProjectBanner';
+import { SettingsContext } from '@contexts/SettingsContext';
 
 // ─── Default settings ──────────────────────────────────────────────────────────
 const DEFAULT_SETTINGS = {
@@ -31,11 +34,38 @@ const newRow = () => ({
 
 // ─── Main Module ───────────────────────────────────────────────────────────────
 export default function ElectricHeatModule() {
+  const { pricingConfig, savePricingConfig, activeProjectId } = useContext(SettingsContext);
+
   const [rows, setRows]             = useState([newRow(), newRow(), newRow()]);
   const [results, setResults]       = useState(null);
-  const [settings, setSettings]     = useState(DEFAULT_SETTINGS);
+  const [settings, setSettings]     = useState(() => ({
+    ...DEFAULT_SETTINGS,
+    ...(pricingConfig.elecHeatSettings ?? {}),
+  }));
   const [showSettings, setShowSettings] = useState(false);
   const { projectId, projectName, loadEstimate, saveEstimate, saving, lastSaved, saveError } = useEstimate('ELECTRIC_HEAT');
+
+  // ── Auto-save rows ─────────────────────────────────────────────────────────
+  const { markAsLoaded } = useAutoSave(
+    rows,
+    () => saveEstimate({ rowsJson: rows }),
+    !!projectId,
+  );
+
+  // ── Auto-save elec heat settings ───────────────────────────────────────────
+  const settingsSnapshotRef = useSettingsAutoSave(settings, activeProjectId, () =>
+    savePricingConfig({ elecHeatSettings: { miscPct: settings.miscPct } }),
+  );
+
+  // Sync elecHeatSettings when pricingConfig changes (e.g. after project load)
+  useEffect(() => {
+    const overrides = pricingConfig.elecHeatSettings ?? {};
+    if (Object.keys(overrides).length > 0) {
+      const newSettings = { ...DEFAULT_SETTINGS, ...overrides };
+      settingsSnapshotRef.current = JSON.stringify(newSettings); // don't count DB-sync as dirty
+      setSettings(newSettings);
+    }
+  }, [pricingConfig.elecHeatSettings]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load from DB if in project context, otherwise fall back to demo mode
   useEffect(() => {
@@ -43,6 +73,9 @@ export default function ElectricHeatModule() {
       loadEstimate().then(est => {
         if (est?.rowsJson && Array.isArray(est.rowsJson) && est.rowsJson.length > 0) {
           setRows(est.rowsJson);
+          markAsLoaded(est.rowsJson);
+        } else {
+          markAsLoaded(null);
         }
       });
       return;
@@ -216,7 +249,7 @@ export default function ElectricHeatModule() {
         </div>
       </div>
 
-      {/* ── Settings panel ───────────────────────────────────────────────────── */}
+      {/* ── Settings panel — project-scoped when a project is open ─────────── */}
       {showSettings && (
         <div className="card p-4 mb-4 border-blue-200 bg-blue-50/40">
           <div className="flex items-center justify-between mb-3">
@@ -228,7 +261,15 @@ export default function ElectricHeatModule() {
               Close
             </button>
           </div>
-          <div className="flex items-center gap-4 flex-wrap">
+
+          {/* Amber hint when no project open */}
+          {!activeProjectId && (
+            <div className="mb-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
+              Open a project to save heater settings to that project only.
+            </div>
+          )}
+
+          <div className="flex items-center gap-4 flex-wrap mb-4">
             <label className="flex items-center gap-2 text-sm text-gray-600">
               Misc Parts %
               <div className="relative">
@@ -253,6 +294,23 @@ export default function ElectricHeatModule() {
               </span>
             </label>
           </div>
+
+          {/* Save to Project button */}
+          <button
+            disabled={!activeProjectId}
+            title={!activeProjectId ? 'Open a project to save heater settings.' : undefined}
+            onClick={async () => {
+              try {
+                await savePricingConfig({ elecHeatSettings: { miscPct: settings.miscPct } });
+                toast.success('Heater settings saved to project');
+              } catch {
+                toast.error('Could not save heater settings');
+              }
+            }}
+            className={`btn-primary text-sm ${!activeProjectId ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            Save to Project
+          </button>
         </div>
       )}
 

@@ -8,6 +8,8 @@ import PriceSettings from './PriceSettings';
 import { SettingsContext } from '@contexts/SettingsContext';
 import { DEMO_METAL_DUCT } from '@utils/demoData';
 import { useEstimate } from '@hooks/useEstimate';
+import { useAutoSave } from '@hooks/useAutoSave';
+import { useSettingsAutoSave } from '@hooks/useSettingsAutoSave';
 import EstimateProjectBanner from '@components/EstimateProjectBanner';
 
 const DEFAULT_PRICES = {
@@ -110,12 +112,29 @@ export default function MetalDuctModule() {
 
   const { projectId, projectName, loadEstimate, saveEstimate, saving, lastSaved, saveError } = useEstimate('METAL_DUCT');
 
+  // ── Auto-save rows ─────────────────────────────────────────────────────────
+  const { markAsLoaded } = useAutoSave(
+    rows,
+    () => saveEstimate({ rowsJson: rows }),
+    !!projectId,
+  );
+
+  // ── Auto-save duct prices when they change (project layer only) ───────────
+  // We watch `prices` (the value that setPrices writes) via `pricingConfig.ductPrices`.
+  // `effectivePrices` is always a new object so we use `pricingConfig.ductPrices` directly.
+  useSettingsAutoSave(pricingConfig.ductPrices ?? prices, activeProjectId, () =>
+    savePricingConfig({ ductPrices: prices }),
+  );
+
   // Load from DB if in project context, otherwise fall back to demo mode
   useEffect(() => {
     if (projectId) {
       loadEstimate().then(est => {
         if (est?.rowsJson && Array.isArray(est.rowsJson) && est.rowsJson.length > 0) {
           setRows(est.rowsJson);
+          markAsLoaded(est.rowsJson); // prevent auto-save of just-loaded data
+        } else {
+          markAsLoaded(null); // no DB data yet — mark load complete
         }
       });
       return;
@@ -129,7 +148,7 @@ export default function MetalDuctModule() {
         }
       } catch (_) {}
     }
-  }, [loadEstimate, projectId]);
+  }, [loadEstimate, projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Derive the column label and whether to show the "= X.XX ft" hint
   const unitLabel = effectivePrices.measureUnit ?? 'ft';

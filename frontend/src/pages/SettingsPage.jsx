@@ -13,9 +13,10 @@ import { SettingsContext, DEFAULT_COPPER_SETTINGS, DEFAULT_ACCESSORY_OVERRIDES }
 import { useAuth } from '@contexts/AuthContext';
 import PriceSettings from '@modules/MetalDuct/PriceSettings';
 import AccessoryPriceSettings from '@modules/UnitSchedule/AccessoryPriceSettings';
+import PricingTablesEditor from './PricingTablesEditor';
 import toast from 'react-hot-toast';
 import { Wrench, TrendingUp, Wind, Loader2, AlertCircle, Save, Zap,
-         ChevronDown, ChevronUp, RefreshCw, Database, ShieldAlert, LayoutList } from 'lucide-react';
+         ChevronDown, ChevronUp, RefreshCw, Database, ShieldAlert, LayoutList, Table2 } from 'lucide-react';
 import { copperApi } from '@services/api';
 
 // ── Generic helpers ───────────────────────────────────────────────────────────
@@ -543,11 +544,12 @@ function CopperTab({ config, setCopperSetting, setCopperSafetyFactor, setCopperF
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: 'rates',       label: 'Labor Rates',    icon: Wrench     },
-  { id: 'markup',      label: 'Markup & Waste', icon: TrendingUp },
-  { id: 'duct',        label: 'Duct Pricing',   icon: Wind       },
-  { id: 'copper',      label: 'Copper',         icon: Zap        },
-  { id: 'accessories', label: 'Accessories',    icon: LayoutList },
+  { id: 'rates',           label: 'Labor Rates',    icon: Wrench     },
+  { id: 'markup',          label: 'Markup & Waste', icon: TrendingUp },
+  { id: 'duct',            label: 'Duct Pricing',   icon: Wind       },
+  { id: 'copper',          label: 'Copper',         icon: Zap        },
+  { id: 'accessories',     label: 'Accessories',    icon: LayoutList },
+  { id: 'pricing-tables',  label: 'Pricing Tables', icon: Table2     },
 ];
 
 export default function SettingsPage() {
@@ -796,6 +798,7 @@ export default function SettingsPage() {
             <AccessoryPriceSettings
               standalone
               overrides={config.accessoryPriceOverrides ?? DEFAULT_ACCESSORY_OVERRIDES}
+              pricingTables={config.unitPricingTables}
               onSet={setAccessoryOverride}
               onReset={resetAccessoryOverride}
               onResetAll={resetAllAccessoryOverrides}
@@ -804,8 +807,20 @@ export default function SettingsPage() {
         </div>
       )}
 
+      {/* PRICING TABLES */}
+      {tab === 'pricing-tables' && !configLoading && (
+        <PricingTablesEditor
+          config={config}
+          onSave={(updates) => {
+            setDraft(prev => ({ ...(prev ?? pricingConfig), ...updates }));
+            return savePricingConfig({ ...(draft ?? pricingConfig), ...updates });
+          }}
+          saving={saving}
+        />
+      )}
+
       {/* Dirty save bar */}
-      {isDirty && tab !== 'duct' && (
+      {isDirty && tab !== 'duct' && tab !== 'pricing-tables' && (
         <div className="mt-8 flex items-center justify-between bg-amber-50 border border-amber-200 rounded-xl px-5 py-3">
           <span className="text-sm text-amber-700 font-medium">You have unsaved changes.</span>
           <button onClick={handleSave} disabled={saving}

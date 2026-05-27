@@ -130,6 +130,7 @@ function PctField({ label, fieldKey, draft, overrides, companyVal, onChange, onR
 export default function ProjectSettingsOverride({ projectId }) {
   const {
     companySettings,
+    pricingConfig,
     projectOverrides,
     overridesLoading,
     saveProjectSettings,
@@ -444,6 +445,7 @@ export default function ProjectSettingsOverride({ projectId }) {
               </p>
               <AccessoryPriceSettings
                 overrides={accDraft}
+                pricingTables={pricingConfig?.unitPricingTables ?? companySettings?.unitPricingTables}
                 onSet={handleAccSet}
                 onReset={handleAccReset}
                 onResetAll={handleAccResetAll}

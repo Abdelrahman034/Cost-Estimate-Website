@@ -14,6 +14,8 @@ import FanRow from './FanRow';
 import FanTotals from './FanTotals';
 import FanPriceSettings from './FanPriceSettings';
 import { useEstimate } from '@hooks/useEstimate';
+import { useAutoSave } from '@hooks/useAutoSave';
+import { useSettingsAutoSave } from '@hooks/useSettingsAutoSave';
 import EstimateProjectBanner from '@components/EstimateProjectBanner';
 import { SettingsContext } from '@contexts/SettingsContext';
 
@@ -44,7 +46,7 @@ const newRow = () => ({
 
 // ─── Main Module ───────────────────────────────────────────────────────────────
 export default function FanScheduleModule() {
-  const { pricingConfig } = useContext(SettingsContext);
+  const { pricingConfig, savePricingConfig, activeProjectId } = useContext(SettingsContext);
 
   const [rows, setRows]               = useState([newRow(), newRow(), newRow()]);
   const [results, setResults]         = useState(null);
@@ -52,14 +54,41 @@ export default function FanScheduleModule() {
   const [settings, setSettings]       = useState(() => ({
     ...DEFAULT_SETTINGS,
     laborRate: pricingConfig.rateFan ?? DEFAULT_LABOR_RATE,
+    ...(pricingConfig.fanSettings ?? {}),
   }));
   const [showSettings, setShowSettings] = useState(false);
   const { projectId, projectName, loadEstimate, saveEstimate, saving, lastSaved, saveError } = useEstimate('FAN_SCHEDULE');
 
-  // Sync laborRate when project settings change
+  // ── Auto-save rows ─────────────────────────────────────────────────────────
+  const { markAsLoaded } = useAutoSave(
+    rows,
+    () => saveEstimate({ rowsJson: rows }),
+    !!projectId,
+  );
+
+  // ── Auto-save fan settings ─────────────────────────────────────────────────
+  const settingsSnapshotRef = useSettingsAutoSave(settings, activeProjectId, () =>
+    savePricingConfig({
+      fanSettings: {
+        laborRate:   settings.laborRate,
+        miscPct:     settings.miscPct,
+        roofPenCost: settings.roofPenCost,
+        wallPenCost: settings.wallPenCost,
+      },
+    }),
+  );
+
+  // Sync laborRate + project fanSettings when pricingConfig changes (e.g. after project load)
   useEffect(() => {
-    setSettings(prev => ({ ...prev, laborRate: pricingConfig.rateFan ?? DEFAULT_LABOR_RATE }));
-  }, [pricingConfig.rateFan]); // eslint-disable-line react-hooks/exhaustive-deps
+    const overrides = pricingConfig.fanSettings ?? {};
+    const newSettings = {
+      ...settings,
+      laborRate: pricingConfig.rateFan ?? DEFAULT_LABOR_RATE,
+      ...overrides,
+    };
+    settingsSnapshotRef.current = JSON.stringify(newSettings); // don't count DB-sync as dirty
+    setSettings(newSettings);
+  }, [pricingConfig.rateFan, pricingConfig.fanSettings]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load from DB if in project context, otherwise fall back to demo mode
   useEffect(() => {
@@ -67,6 +96,9 @@ export default function FanScheduleModule() {
       loadEstimate().then(est => {
         if (est?.rowsJson && Array.isArray(est.rowsJson) && est.rowsJson.length > 0) {
           setRows(est.rowsJson);
+          markAsLoaded(est.rowsJson);
+        } else {
+          markAsLoaded(null);
         }
       });
       return;
@@ -80,7 +112,7 @@ export default function FanScheduleModule() {
         }
       } catch (_) {}
     }
-  }, [loadEstimate, projectId]);
+  }, [loadEstimate, projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Auto-push totals to Dashboard whenever results change ──────────────────
   useEffect(() => {
@@ -245,12 +277,28 @@ export default function FanScheduleModule() {
         </div>
       </div>
 
-      {/* ── Settings Panel ───────────────────────────────────────────────────── */}
+      {/* ── Settings Panel — project-scoped when a project is open ──────────── */}
       {showSettings && (
         <FanPriceSettings
           settings={settings}
           onSettingsChange={setSettings}
           onClose={() => setShowSettings(false)}
+          activeProjectId={activeProjectId}
+          onProjectSave={async (current) => {
+            try {
+              await savePricingConfig({
+                fanSettings: {
+                  laborRate:   current.laborRate,
+                  miscPct:     current.miscPct,
+                  roofPenCost: current.roofPenCost,
+                  wallPenCost: current.wallPenCost,
+                },
+              });
+              toast.success('Fan settings saved to project');
+            } catch {
+              toast.error('Could not save fan settings');
+            }
+          }}
         />
       )}
 

@@ -416,6 +416,8 @@ function accessoryCost(selection, matCost, laborHours, flatLaborFlag = false) {
 
 export function calcServiceUnit(unit) {
   const { systemType = '', coolTons = 0, pmMaterials = 0, pmLabor = 0 } = unit;
+  const tables = unit.pricingTables ?? DEFAULT_UNIT_PRICING_TABLES;
+  const serviceTable = tables.servicePricingTable ?? SERVICE_PRICING_TABLE;
   const typeKey = SYSTEM_TYPE_KEY_MAP[systemType] || 'packaged';
   const tonNum  = Number(coolTons) || 0;
   const pmMat   = round2(Number(pmMaterials));
@@ -438,10 +440,10 @@ export function calcServiceUnit(unit) {
   // MATCH lookup — largest breakpoint whose tons value is <= entered tons
   let matCost   = 0;
   let laborCost = 0;
-  for (let i = SERVICE_PRICING_TABLE.length - 1; i >= 0; i--) {
-    if (tonNum >= SERVICE_PRICING_TABLE[i].tons) {
-      matCost   = SERVICE_PRICING_TABLE[i].material[typeKey] || 0;
-      laborCost = SERVICE_PRICING_TABLE[i].labor[typeKey]    || 0;
+  for (let i = serviceTable.length - 1; i >= 0; i--) {
+    if (tonNum >= serviceTable[i].tons) {
+      matCost   = serviceTable[i].material[typeKey] || 0;
+      laborCost = serviceTable[i].labor[typeKey]    || 0;
       break;
     }
   }
@@ -482,6 +484,7 @@ export function calcPackagedUnit(unit) {
     priceOverrides = {}, // user-editable price overrides from settings panel
   } = unit;
 
+  const tables = unit.pricingTables ?? DEFAULT_UNIT_PRICING_TABLES;
   const tons = Number(coolTons) || 0;
 
   // Blank row — no tonnage entered, return zeros
@@ -518,8 +521,8 @@ export function calcPackagedUnit(unit) {
     accHours    += round2(hrs);
   };
 
-  const T = PKG_ACCESSORY_TABLES;
-  const L = PKG_LABOR_HOURS;
+  const T = tables.packaged?.accessories ?? PKG_ACCESSORY_TABLES;
+  const L = tables.packaged?.laborHours ?? PKG_LABOR_HOURS;
 
   addAcc(accessories.standardCurb,  T.standardCurb,  L.standardCurb,  'standardCurb');
   addAcc(accessories.metalRoofCurb, T.metalRoofCurb, L.metalRoofCurb, 'metalRoofCurb');
@@ -613,6 +616,7 @@ export function calcSplitUnit(unit) {
     copper = {},                 // per-row copper sub-object (for copperType)
   } = unit;
 
+  const tables = unit.pricingTables ?? DEFAULT_UNIT_PRICING_TABLES;
   const tons = Number(coolTons) || 0;
 
   // Blank row — no tonnage entered, return zeros so the summary stays clean
@@ -634,8 +638,8 @@ export function calcSplitUnit(unit) {
   let accHours    = 0;
   const TR = Number(techRate) || SPLIT_TECH_RATE;
 
-  const T = SPLIT_ACCESSORY_TABLES;
-  const L = SPLIT_LABOR_HOURS;
+  const T = tables.split?.accessories ?? SPLIT_ACCESSORY_TABLES;
+  const L = tables.split?.laborHours ?? SPLIT_LABOR_HOURS;
 
   const resolveMat = (key, defaultTable) => {
     if (priceOverrides[key] != null && priceOverrides[key] !== '') return Number(priceOverrides[key]);
@@ -742,6 +746,7 @@ export function calcWallMountUnit(unit) {
     copper = {},
   } = unit;
 
+  const tables = unit.pricingTables ?? DEFAULT_UNIT_PRICING_TABLES;
   const tons = Number(coolTons) || 0;
 
   // Blank row — no tonnage entered, return zeros
@@ -763,8 +768,8 @@ export function calcWallMountUnit(unit) {
   let accHours    = 0;
   const TR = Number(techRate) || WALL_MOUNT_TECH_RATE;
 
-  const T = WALL_MOUNT_ACCESSORY_TABLES;
-  const L = WALL_MOUNT_LABOR_HOURS;
+  const T = tables.wallMount?.accessories ?? WALL_MOUNT_ACCESSORY_TABLES;
+  const L = tables.wallMount?.laborHours ?? WALL_MOUNT_LABOR_HOURS;
 
   const resolveMat = (key, defaultTable) => {
     if (priceOverrides[key] != null && priceOverrides[key] !== '') return Number(priceOverrides[key]);
@@ -857,6 +862,7 @@ export function calcVRFUnit(unit) {
     copper = {},
   } = unit;
 
+  const tables = unit.pricingTables ?? DEFAULT_UNIT_PRICING_TABLES;
   const tons = Number(coolTons) || 0;
 
   // Blank row — no tonnage entered, return zeros
@@ -879,8 +885,8 @@ export function calcVRFUnit(unit) {
   let accHours    = 0;
   const TR = Number(techRate) || VRF_TECH_RATE;
 
-  const T = VRF_ACCESSORY_TABLES;
-  const L = VRF_LABOR_HOURS;
+  const T = tables.vrf?.accessories ?? VRF_ACCESSORY_TABLES;
+  const L = tables.vrf?.laborHours ?? VRF_LABOR_HOURS;
 
   const resolveMat = (key, defaultTable) => {
     if (priceOverrides[key] != null && priceOverrides[key] !== '') return Number(priceOverrides[key]);
@@ -1049,11 +1055,14 @@ export function calcFanUnit(unit) {
     accessories = {},
   } = unit;
 
+  const tables = unit.pricingTables ?? DEFAULT_UNIT_PRICING_TABLES;
+  const fanTables = tables.fan ?? {};
+  const basePriceTable = fanTables.basePriceTable ?? FAN_BASE_PRICE_TABLE;
   const c = Number(cfm) || 0;
 
   // Equipment cost
   const estEquipCost = round0(
-    Number(unitPrice) > 0 ? Number(unitPrice) : lookupByTons(FAN_BASE_PRICE_TABLE, c)
+    Number(unitPrice) > 0 ? Number(unitPrice) : lookupByTons(basePriceTable, c)
   );
   const equipCost = ownerProvided === 'xx'
     ? 0
@@ -1072,8 +1081,8 @@ export function calcFanUnit(unit) {
     accHours    += round2(hrs);
   };
 
-  const T = FAN_ACCESSORY_TABLES;
-  const L = FAN_LABOR_HOURS;
+  const T = fanTables.accessories ?? FAN_ACCESSORY_TABLES;
+  const L = fanTables.laborHours ?? FAN_LABOR_HOURS;
 
   addAcc(accessories.disconnectSwitch, T.disconnectSwitch, L.disconnectSwitch);
   addAcc(accessories.gfiOutlet,        T.gfiOutlet,        L.gfiOutlet);
@@ -1144,6 +1153,52 @@ export const LD_ACCESSORIES = {
   sleeve:   { perSqFt: 6.5,  hoursPerSqFt: 0.20, minMat: 45 },
 };
 
+// ─── Default Pricing Table Bundle ─────────────────────────────────────────────
+// Used as the hardcoded fallback when the DB has no override tables yet.
+export const DEFAULT_UNIT_PRICING_TABLES = {
+  servicePricingTable: SERVICE_PRICING_TABLE,
+  packaged:  { accessories: PKG_ACCESSORY_TABLES,  laborHours: PKG_LABOR_HOURS },
+  split:     { accessories: SPLIT_ACCESSORY_TABLES, laborHours: SPLIT_LABOR_HOURS },
+  wallMount: { accessories: WALL_MOUNT_ACCESSORY_TABLES, laborHours: WALL_MOUNT_LABOR_HOURS },
+  vrf:       { accessories: VRF_ACCESSORY_TABLES, laborHours: VRF_LABOR_HOURS },
+  fan: {
+    basePriceTable: FAN_BASE_PRICE_TABLE,
+    accessories:    FAN_ACCESSORY_TABLES,
+    laborHours:     FAN_LABOR_HOURS,
+  },
+  louverDamper: {
+    pricing:     LOUVER_DAMPER_PRICING,
+    accessories: LD_ACCESSORIES,
+    minMat:      LD_MIN_MAT,
+    minHrs:      LD_MIN_HRS,
+  },
+};
+
+function isPlainObject(value) {
+  return value != null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * Merge DB override tables onto the hardcoded defaults.
+ * Arrays are treated as replacements, not merged.
+ */
+export function mergeUnitPricingTables(overrides = {}, base = DEFAULT_UNIT_PRICING_TABLES) {
+  if (!isPlainObject(overrides) || Object.keys(overrides).length === 0) return base;
+  const merge = (src, ov) => {
+    if (Array.isArray(ov)) return ov;
+    if (!isPlainObject(ov)) return ov ?? src;
+    const next = { ...(isPlainObject(src) ? src : {}) };
+    for (const [key, val] of Object.entries(ov)) {
+      const srcVal = next[key];
+      if (Array.isArray(val)) next[key] = val;
+      else if (isPlainObject(val)) next[key] = merge(srcVal, val);
+      else next[key] = val;
+    }
+    return next;
+  };
+  return merge(base, overrides);
+}
+
 // ─── LOUVER / DAMPER CALCULATION ─────────────────────────────────────────────
 // Face area drives material, labor, and accessory costs.
 // Qty multiplies the per-unit total.
@@ -1161,16 +1216,23 @@ export function calcLouverDamperUnit(unit) {
     accessories = {},
   } = unit;
 
+  const tables = unit.pricingTables ?? DEFAULT_UNIT_PRICING_TABLES;
+  const ldTables = tables.louverDamper ?? {};
+  const pricingTable = ldTables.pricing ?? LOUVER_DAMPER_PRICING;
+  const accessoryTable = ldTables.accessories ?? LD_ACCESSORIES;
+  const minMat = ldTables.minMat ?? LD_MIN_MAT;
+  const minHrs = ldTables.minHrs ?? LD_MIN_HRS;
+
   const w = Number(widthIn) || 0;
   const h = Number(heightIn) || 0;
   const q = Math.max(1, Number(qty));
   const faceArea = round2((w / 12) * (h / 12));   // sq ft
 
-  const pricing = LOUVER_DAMPER_PRICING[type] || LOUVER_DAMPER_PRICING['OA Louver'];
+  const pricing = pricingTable[type] || pricingTable['OA Louver'];
 
   // Per-unit base material
-  const baseMat = Math.max(LD_MIN_MAT, faceArea * pricing.matPerSqFt);
-  const baseHrs = Math.max(LD_MIN_HRS, faceArea * pricing.laborHrsPerSqFt);
+  const baseMat = Math.max(minMat, faceArea * pricing.matPerSqFt);
+  const baseHrs = Math.max(minHrs, faceArea * pricing.laborHrsPerSqFt);
 
   const unitMat = ownerProvided === 'xx'
     ? 0
@@ -1181,19 +1243,19 @@ export function calcLouverDamperUnit(unit) {
   let accHrsPerUnit  = 0;
 
   if (accessories.screen && accessories.screen !== '') {
-    const mat = accessories.screen === 'xx' ? 0 : Math.max(LD_ACCESSORIES.screen.minMat, faceArea * LD_ACCESSORIES.screen.perSqFt);
+    const mat = accessories.screen === 'xx' ? 0 : Math.max(accessoryTable.screen.minMat, faceArea * accessoryTable.screen.perSqFt);
     accMatPerUnit  += mat;
-    accHrsPerUnit  += faceArea * LD_ACCESSORIES.screen.hoursPerSqFt + 0.25;
+    accHrsPerUnit  += faceArea * accessoryTable.screen.hoursPerSqFt + 0.25;
   }
   if (accessories.actuator && accessories.actuator !== '') {
-    const mat = accessories.actuator === 'xx' ? 0 : LD_ACCESSORIES.actuator.flat;
+    const mat = accessories.actuator === 'xx' ? 0 : accessoryTable.actuator.flat;
     accMatPerUnit  += mat;
-    accHrsPerUnit  += LD_ACCESSORIES.actuator.flatHours;
+    accHrsPerUnit  += accessoryTable.actuator.flatHours;
   }
   if (accessories.sleeve && accessories.sleeve !== '') {
-    const mat = accessories.sleeve === 'xx' ? 0 : Math.max(LD_ACCESSORIES.sleeve.minMat, faceArea * LD_ACCESSORIES.sleeve.perSqFt);
+    const mat = accessories.sleeve === 'xx' ? 0 : Math.max(accessoryTable.sleeve.minMat, faceArea * accessoryTable.sleeve.perSqFt);
     accMatPerUnit  += mat;
-    accHrsPerUnit  += faceArea * LD_ACCESSORIES.sleeve.hoursPerSqFt + 0.25;
+    accHrsPerUnit  += faceArea * accessoryTable.sleeve.hoursPerSqFt + 0.25;
   }
 
   // Apply qty

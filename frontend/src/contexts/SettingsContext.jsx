@@ -20,10 +20,14 @@
 import React, { createContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSearchParams, useLocation } from 'react-router-dom';
 import { pricingApi, projectSettingsApi } from '@services/api';
+import { mergeUnitPricingTables } from '@utils/unitScheduleCalculations';
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
 
-// Duct / material prices (MetalDuct module — localStorage-backed)
+// Duct / material prices (MetalDuct module)
+// Company-level values live in PricingConfig.ductPrices in DB.
+// Project-level overrides live in project.settingsOverrides.ductPrices.
+// localStorage is used ONLY as a cache for the company-level values.
 export const DEFAULT_DUCT_PRICES = {
   sheetMetalKgPerFt2:       0.567,
   sheetMetalLbsPerFt2:      1.24967,
@@ -96,6 +100,11 @@ function coerceCompanyConfig(data) {
   coerced.accessoryPriceOverrides = data.accessoryPriceOverrides
     ? { ...DEFAULT_ACCESSORY_OVERRIDES, ...data.accessoryPriceOverrides }
     : DEFAULT_ACCESSORY_OVERRIDES;
+  coerced.unitPricingTables = mergeUnitPricingTables(data.unitPricingTables);
+  // Merge duct prices: DB values win over defaults, with full fallback to defaults
+  coerced.ductPrices = data.ductPrices
+    ? { ...DEFAULT_DUCT_PRICES, ...data.ductPrices }
+    : DEFAULT_DUCT_PRICES;
   return coerced;
 }
 
@@ -112,6 +121,12 @@ function mergeSettings(company, overrides) {
     accessoryPriceOverrides: overrides.accessoryPriceOverrides
       ? { ...company.accessoryPriceOverrides, ...overrides.accessoryPriceOverrides }
       : company.accessoryPriceOverrides,
+    unitPricingTables: overrides.unitPricingTables
+      ? mergeUnitPricingTables(overrides.unitPricingTables, company.unitPricingTables)
+      : company.unitPricingTables,
+    ductPrices: overrides.ductPrices
+      ? { ...company.ductPrices, ...overrides.ductPrices }
+      : company.ductPrices,
   };
 }
 
@@ -124,21 +139,9 @@ const PROJECT_DETAIL_RE = /^\/projects\/[^/]+/;
 
 export function SettingsProvider({ children }) {
 
-  // ── Duct prices (localStorage-only, MetalDuct module) ─────────────────────
-  const [prices, setPrices] = useState(() => {
-    try {
-      const raw = localStorage.getItem('globalPrices');
-      return raw ? { ...DEFAULT_DUCT_PRICES, ...JSON.parse(raw) } : DEFAULT_DUCT_PRICES;
-    } catch {
-      return DEFAULT_DUCT_PRICES;
-    }
-  });
-
-  useEffect(() => {
-    try { localStorage.setItem('globalPrices', JSON.stringify(prices)); } catch {}
-  }, [prices]);
-
   // ── Company config (DB-backed via /api/pricing) ───────────────────────────
+  // NOTE: ductPrices are now embedded in companyConfig.ductPrices (DB-backed).
+  //       The old localStorage 'globalPrices' key is migrated on first load below.
   const [companyConfig, setCompanyConfig] = useState(() => {
     try {
       const raw = localStorage.getItem('pricingConfig');
@@ -151,7 +154,9 @@ export function SettingsProvider({ children }) {
   const [configLoading, setConfigLoading] = useState(true);
   const [configError,   setConfigError]   = useState(null);
 
-  // Load company config from DB on mount
+  // Load company config from DB on mount.
+  // Also migrates any ductPrices that were previously stored in localStorage
+  // ('globalPrices') into the DB on the first load where the DB has no ductPrices yet.
   useEffect(() => {
     let cancelled = false;
     setConfigLoading(true);
@@ -159,6 +164,23 @@ export function SettingsProvider({ children }) {
       .then(res => {
         if (cancelled) return;
         const coerced = coerceCompanyConfig(res.data);
+
+        // ── One-time localStorage → DB migration for ductPrices ──────────────
+        // If the DB has no ductPrices yet but localStorage has user-customised
+        // prices from the old system, migrate them up to DB automatically.
+        if (!res.data.ductPrices) {
+          try {
+            const legacy = localStorage.getItem('globalPrices');
+            if (legacy) {
+              const legacyPrices = JSON.parse(legacy);
+              coerced.ductPrices = { ...DEFAULT_DUCT_PRICES, ...legacyPrices };
+              // Push to DB in the background (fire-and-forget)
+              pricingApi.saveConfig({ ductPrices: coerced.ductPrices }).catch(() => {});
+              localStorage.removeItem('globalPrices'); // clean up old key
+            }
+          } catch { /* ignore */ }
+        }
+
         setCompanyConfig(coerced);
         try { localStorage.setItem('pricingConfig', JSON.stringify(coerced)); } catch {}
         setConfigError(null);
@@ -279,6 +301,27 @@ export function SettingsProvider({ children }) {
   const copperSettings          = effectiveSettings.copperSettings          ?? DEFAULT_COPPER_SETTINGS;
   const accessoryPriceOverrides = effectiveSettings.accessoryPriceOverrides ?? DEFAULT_ACCESSORY_OVERRIDES;
 
+  // ── Legacy alias: savePricingConfig ──────────────────────────────────────
+  // Modules that call savePricingConfig directly should route to the right layer.
+  // NOTE: Direct saves from modules (not Settings page) go to project overrides
+  //       when a project is active, so company defaults stay clean.
+  const savePricingConfig = useCallback(async (updates) => {
+    if (activeProjectId) {
+      return saveProjectSettings(updates);
+    }
+    return saveCompanySettings(updates);
+  }, [activeProjectId, saveProjectSettings, saveCompanySettings]);
+
+  // ── DB-backed duct prices ─────────────────────────────────────────────────
+  // `prices` = effective duct prices (company defaults ← project overrides)
+  // `setPrices` saves to project layer when inside a project, else company layer.
+  const prices = effectiveSettings.ductPrices ?? DEFAULT_DUCT_PRICES;
+
+  const setPrices = useCallback((value) => {
+    const next = typeof value === 'function' ? value(prices) : value;
+    savePricingConfig({ ductPrices: next }).catch(() => {});
+  }, [prices, savePricingConfig]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Legacy shim: overhead / setOverhead (used by MetalDuct module)
   const overhead = {
     overheadPct: effectiveSettings.overheadPct,
@@ -296,17 +339,6 @@ export function SettingsProvider({ children }) {
       saveCompanySettings(updates).catch(() => {});
     }
   }, [overhead, activeProjectId, projectOverrides, saveCompanySettings]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Legacy alias: savePricingConfig ──────────────────────────────────────
-  // Modules that call savePricingConfig directly should route to the right layer.
-  // NOTE: Direct saves from modules (not Settings page) go to project overrides
-  //       when a project is active, so company defaults stay clean.
-  const savePricingConfig = useCallback(async (updates) => {
-    if (activeProjectId) {
-      return saveProjectSettings(updates);
-    }
-    return saveCompanySettings(updates);
-  }, [activeProjectId, saveProjectSettings, saveCompanySettings]);
 
   return (
     <SettingsContext.Provider value={{
