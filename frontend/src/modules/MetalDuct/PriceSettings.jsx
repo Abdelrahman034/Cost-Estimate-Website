@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, RefreshCw } from 'lucide-react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
+import { DUCT_MATERIAL_OPTIONS, GAUGE_THICKNESS_MM, MATERIAL_DENSITY_KG_M3 } from '@utils/ductCalculations';
 
 // Standard unit conversions to feet (no custom factor — these are universally fixed)
 const UNIT_OPTIONS = [
@@ -133,18 +134,7 @@ export default function PriceSettings({
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
         <div>
-          <label className="label">Sheet Metal (lbs/ft²)</label>
-          <input
-            type="number"
-            step="0.0001"
-            className="input"
-            value={draft.sheetMetalLbsPerFt2}
-            onChange={(e) => setDraft({ ...draft, sheetMetalLbsPerFt2: parseFloat(e.target.value) })}
-          />
-          <p className="text-xs text-gray-400 mt-1">AC5 — weight per unit area</p>
-        </div>
-        <div>
-          <label className="label">Sheet Metal ($/lb)</label>
+          <label className="label">Fallback $/lb</label>
           <input
             type="number"
             step="0.01"
@@ -152,7 +142,7 @@ export default function PriceSettings({
             value={draft.sheetMetalCostPerLb}
             onChange={(e) => setDraft({ ...draft, sheetMetalCostPerLb: parseFloat(e.target.value) })}
           />
-          <p className="text-xs text-gray-400 mt-1">Workbook-aligned square duct material rate</p>
+          <p className="text-xs text-gray-400 mt-1">Used if per-material price is missing</p>
         </div>
         <div>
           <label className="label">Sheet Metal Labor ($/ft)</label>
@@ -265,31 +255,90 @@ export default function PriceSettings({
           <p className="text-xs text-gray-400 mt-1">Incidentals rate for round duct</p>
         </div>
 
-        <div style={{display:'none'}}>
-          {/* Overhead % moved to Global tab in Settings */}
-          <label className="label">Overhead %</label>
-          <input
-            type="number"
-            step="1"
-            className="input"
-            value={Math.round(draftOverhead.overheadPct * 100)}
-            onChange={(e) => setDraftOverhead({ ...draftOverhead, overheadPct: parseInt(e.target.value) / 100 })}
-          />
-        </div>
-        <div style={{display:'none'}}>
-          {/* Profit % moved to Global tab in Settings */}
-          <label className="label">Profit %</label>
-          <input
-            type="number"
-            step="1"
-            className="input"
-            value={Math.round(draftOverhead.profitPct * 100)}
-            onChange={(e) => setDraftOverhead({ ...draftOverhead, profitPct: parseInt(e.target.value) / 100 })}
-          />
+      </div>
+
+      {/* ── Per-Material Pricing ── */}
+      <div className="mt-5 p-3 rounded-xl bg-white border border-blue-200">
+        <p className="text-xs font-semibold uppercase tracking-wider text-blue-600 mb-3">
+          Material Pricing ($/lb)
+        </p>
+        <p className="text-xs text-gray-400 mb-4">
+          Thickness &amp; density are fixed ASTM/SMACNA constants. Only the unit price is editable.
+        </p>
+        <div className="space-y-4">
+          {DUCT_MATERIAL_OPTIONS.map((mat) => {
+            const thicknessTable = GAUGE_THICKNESS_MM[mat.value] ?? {};
+            const density        = MATERIAL_DENSITY_KG_M3[mat.value] ?? 7850;
+            const currentPrice   = draft.materialCostPerLb?.[mat.value] ?? 0;
+            const GAUGES         = [26, 24, 22, 20, 18];
+            const MATERIAL_COLORS = {
+              galvanized:   'border-blue-200 bg-blue-50',
+              blackSteel:   'border-gray-300 bg-gray-50',
+              stainless304: 'border-yellow-200 bg-yellow-50',
+              stainless316: 'border-orange-200 bg-orange-50',
+              aluminum:     'border-purple-200 bg-purple-50',
+            };
+            const HEADER_COLORS = {
+              galvanized:   'text-blue-700',
+              blackSteel:   'text-gray-700',
+              stainless304: 'text-yellow-700',
+              stainless316: 'text-orange-700',
+              aluminum:     'text-purple-700',
+            };
+            return (
+              <div key={mat.value} className={`rounded-xl border p-3 ${MATERIAL_COLORS[mat.value]}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className={`text-sm font-semibold ${HEADER_COLORS[mat.value]}`}>{mat.label}</span>
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-gray-500">$/lb</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      className="input text-xs w-24"
+                      value={currentPrice}
+                      onChange={(e) => setDraft((prev) => ({
+                        ...prev,
+                        materialCostPerLb: {
+                          ...(prev.materialCostPerLb ?? {}),
+                          [mat.value]: parseFloat(e.target.value) || 0,
+                        },
+                      }))}
+                    />
+                  </div>
+                </div>
+                {/* Reference thickness table */}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-gray-500">
+                    <thead>
+                      <tr className="border-b border-gray-200">
+                        <th className="text-left py-1 font-medium">Gauge</th>
+                        {GAUGES.map((g) => (
+                          <th key={g} className="text-center py-1 font-medium w-12">{g}</th>
+                        ))}
+                        <th className="text-right py-1 font-medium">Density</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td className="py-1 text-gray-400">mm</td>
+                        {GAUGES.map((g) => (
+                          <td key={g} className="text-center py-1 font-mono">
+                            {thicknessTable[g] != null ? thicknessTable[g].toFixed(3) : '—'}
+                          </td>
+                        ))}
+                        <td className="text-right py-1 font-mono">{density.toLocaleString()} kg/m³</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 mt-5">
         <button
           onClick={fetchLivePrices}
           disabled={loading}

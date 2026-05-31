@@ -21,6 +21,7 @@ import React, { createContext, useState, useEffect, useCallback, useMemo, useRef
 import { useSearchParams, useLocation } from 'react-router-dom';
 import { pricingApi, projectSettingsApi } from '@services/api';
 import { mergeUnitPricingTables } from '@utils/unitScheduleCalculations';
+import { useAuth } from '@contexts/AuthContext';
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
 
@@ -29,9 +30,8 @@ import { mergeUnitPricingTables } from '@utils/unitScheduleCalculations';
 // Project-level overrides live in project.settingsOverrides.ductPrices.
 // localStorage is used ONLY as a cache for the company-level values.
 export const DEFAULT_DUCT_PRICES = {
-  sheetMetalKgPerFt2:       0.567,
-  sheetMetalLbsPerFt2:      1.24967,
-  sheetMetalCostPerLb:      4.00,
+  sheetMetalLbsPerFt2:      1.24967,   // legacy flat constant — kept for backward compat
+  sheetMetalCostPerLb:      4.00,      // fallback if materialCostPerLb entry missing
   insulationPerSqFt:        1.25,
   ductWrapLaborPerFt:       4.0,
   sheetMetalLaborPerFt:     23.0,
@@ -44,6 +44,14 @@ export const DEFAULT_DUCT_PRICES = {
   incidentalsPct:           0.20,
   roundDuctIncidentalsPct:  0.25,
   measureUnit:              'ft',
+  // Per-material $/lb prices (SMACNA/market typical ranges as defaults)
+  materialCostPerLb: {
+    galvanized:   4.00,
+    blackSteel:   3.50,
+    stainless304: 12.00,
+    stainless316: 16.00,
+    aluminum:     6.00,
+  },
 };
 
 // Company-wide config defaults (mirrors DB schema defaults)
@@ -61,6 +69,13 @@ export const DEFAULT_PRICING_CONFIG = {
   taxPct:        0.00,
   ductWastePct:  0.10,
   pipeWastePct:  0.10,
+  marginL:      -0.02,
+  marginM:       0.00,
+  marginH:       0.02,
+  // Per-sector rules (mat tax %, bid add % applied to totalMat in Mercury model)
+  sectorCommercial: { matTaxPct: 0.0825, bidAddPct: 0.00,  notes: '' },
+  sectorPublic:     { matTaxPct: 0.00,   bidAddPct: 0.005, notes: 'No material tax; +0.5% bid add' },
+  sectorMultiFamily:{ matTaxPct: 0.0825, bidAddPct: 0.00,  notes: '' },
 };
 
 export const DEFAULT_ACCESSORY_OVERRIDES = {
@@ -138,6 +153,7 @@ export const SettingsContext = createContext({});
 const PROJECT_DETAIL_RE = /^\/projects\/[^/]+/;
 
 export function SettingsProvider({ children }) {
+  const { loading: authLoading, user } = useAuth();
 
   // ── Company config (DB-backed via /api/pricing) ───────────────────────────
   // NOTE: ductPrices are now embedded in companyConfig.ductPrices (DB-backed).
@@ -154,10 +170,15 @@ export function SettingsProvider({ children }) {
   const [configLoading, setConfigLoading] = useState(true);
   const [configError,   setConfigError]   = useState(null);
 
-  // Load company config from DB on mount.
+  // Load company config from DB once AuthContext has finished restoring the session.
+  // Waiting for authLoading=false + user ensures the access token is in sessionStorage
+  // before the request fires, preventing the "No token provided" race condition.
   // Also migrates any ductPrices that were previously stored in localStorage
   // ('globalPrices') into the DB on the first load where the DB has no ductPrices yet.
   useEffect(() => {
+    // Don't fire until auth is resolved. If there's no user (not logged in), skip.
+    if (authLoading || !user) return;
+
     let cancelled = false;
     setConfigLoading(true);
     pricingApi.getConfig()
@@ -191,7 +212,7 @@ export function SettingsProvider({ children }) {
       })
       .finally(() => { if (!cancelled) setConfigLoading(false); });
     return () => { cancelled = true; };
-  }, []);
+  }, [authLoading, user]);
 
   /** Save company-wide settings (Settings page only). Does NOT affect any project. */
   const saveCompanySettings = useCallback(async (updates) => {

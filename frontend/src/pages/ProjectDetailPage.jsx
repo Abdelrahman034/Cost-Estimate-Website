@@ -11,6 +11,7 @@ import { estimatesApi } from '@services/estimatesApi';
 import api from '@services/api';
 import { useAuth } from '@contexts/AuthContext';
 import { SettingsContext } from '@contexts/SettingsContext';
+import { useActiveProject } from '@contexts/ActiveProjectContext';
 import ProjectSettingsOverride from '@components/ProjectSettingsOverride';
 import {
   ArrowLeft, Building2, Wind, Gauge, Fan, Zap, BarChart3,
@@ -51,7 +52,7 @@ const MODULES = [
   { key: 'DIFFUSER_SCHEDULE', label: 'Diffuser Schedule', description: 'Supply & return diffusers',        route: '/diffuser',      icon: Gauge,     color: 'violet'  },
   { key: 'FAN_SCHEDULE',      label: 'Fan Schedule',      description: 'Exhaust & supply fans',            route: '/fan-schedule',  icon: Fan,       color: 'sky'     },
   { key: 'ELECTRIC_HEAT',     label: 'Electric Heat',     description: 'Unit heaters & strip heaters',     route: '/electric-heat', icon: Zap,       color: 'amber'   },
-  { key: 'SUMMARY',           label: 'Bid Summary',       description: 'Rolled-up project totals',         route: '/summary',       icon: BarChart3, color: 'emerald' },
+  { key: 'LOUVERS_DAMPERS',  label: 'Louvers & Dampers', description: 'OA/supply/return louvers and fire/smoke/volume/backdraft dampers', route: '/louvers', icon: Wind, color: 'teal' },
 ];
 
 const COLOR_CLASSES = {
@@ -61,6 +62,7 @@ const COLOR_CLASSES = {
   sky:     { bg: 'bg-sky-50',     border: 'border-sky-100',    icon: 'text-sky-600'     },
   amber:   { bg: 'bg-amber-50',   border: 'border-amber-100',  icon: 'text-amber-600'   },
   emerald: { bg: 'bg-emerald-50', border: 'border-emerald-100',icon: 'text-emerald-600' },
+  teal:    { bg: 'bg-teal-50',    border: 'border-teal-100',   icon: 'text-teal-600'   },
 };
 
 const STATUS_STYLES = {
@@ -81,13 +83,18 @@ function EditProjectModal({ project, open, onClose, onSaved }) {
   useEffect(() => {
     if (project && open) {
       setForm({
-        name:     project.name     || '',
-        location: project.location || '',
-        owner:    project.owner    || '',
-        gc:       project.gc       || '',
-        bidDate:  project.bidDate ? project.bidDate.slice(0, 10) : '',
-        notes:    project.notes    || '',
-        status:   project.status   || 'ACTIVE',
+        name:             project.name             || '',
+        location:         project.location         || '',
+        owner:            project.owner            || '',
+        gc:               project.gc               || '',
+        bidDate:          project.bidDate ? project.bidDate.slice(0, 10) : '',
+        notes:            project.notes            || '',
+        status:           project.status           || 'ACTIVE',
+        projectType:      project.projectType      || '',
+        area:             project.area             != null ? String(project.area) : '',
+        submissionStatus: project.submissionStatus || '',
+        marginPct:        project.marginPct        != null ? String(parseFloat(project.marginPct) * 100) : '',
+        bidValue:         project.bidValue         != null ? String(project.bidValue) : '',
       });
       setError('');
     }
@@ -100,7 +107,13 @@ function EditProjectModal({ project, open, onClose, onSaved }) {
     setSaving(true);
     setError('');
     try {
-      const updated = await projectsApi.update(project.id, form);
+      const payload = {
+        ...form,
+        area:      form.area      ? parseFloat(form.area)      : null,
+        marginPct: form.marginPct ? parseFloat(form.marginPct) / 100 : null,
+        bidValue:  form.bidValue  ? parseFloat(form.bidValue)  : null,
+      };
+      const updated = await projectsApi.update(project.id, payload);
       onSaved(updated);
       onClose();
     } catch (err) {
@@ -149,15 +162,53 @@ function EditProjectModal({ project, open, onClose, onSaved }) {
               <input name="gc" value={form.gc || ''} onChange={handle} className="input w-full" />
             </div>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Status</label>
-            <select name="status" value={form.status || 'ACTIVE'} onChange={handle} className="input w-full">
-              <option value="ACTIVE">Active</option>
-              <option value="WON">Won</option>
-              <option value="LOST">Lost</option>
-              <option value="ON_HOLD">On Hold</option>
-              <option value="ARCHIVED">Archived</option>
-            </select>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Status</label>
+              <select name="status" value={form.status || 'ACTIVE'} onChange={handle} className="input w-full">
+                <option value="ACTIVE">Active</option>
+                <option value="WON">Won</option>
+                <option value="LOST">Lost</option>
+                <option value="ON_HOLD">On Hold</option>
+                <option value="ARCHIVED">Archived</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Project type</label>
+              <select name="projectType" value={form.projectType || ''} onChange={handle} className="input w-full">
+                <option value="">— none —</option>
+                <option value="COMMERCIAL">Commercial</option>
+                <option value="PUBLIC">Public</option>
+                <option value="MULTI_FAMILY">Multi-Family</option>
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Submission status</label>
+              <select name="submissionStatus" value={form.submissionStatus || ''} onChange={handle} className="input w-full">
+                <option value="">— none —</option>
+                <option value="Pending">Pending</option>
+                <option value="Submitted">Submitted</option>
+                <option value="Awarded">Awarded</option>
+                <option value="Not Submitted">Not Submitted</option>
+                <option value="Late">Late</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Area (sq ft)</label>
+              <input type="number" name="area" value={form.area || ''} onChange={handle} placeholder="e.g. 45000" className="input w-full" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Bid value ($)</label>
+              <input type="number" name="bidValue" value={form.bidValue || ''} onChange={handle} placeholder="e.g. 450000" className="input w-full" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Margin %</label>
+              <input type="number" name="marginPct" value={form.marginPct || ''} onChange={handle} placeholder="e.g. 15" step="0.1" className="input w-full" />
+            </div>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Notes</label>
@@ -414,6 +465,7 @@ export default function ProjectDetailPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { loadProjectSettings } = useContext(SettingsContext);
+  const { setActiveProject, clearActiveProject } = useActiveProject();
 
   const [project,   setProject]   = useState(null);
   const [estimates, setEstimates] = useState([]);
@@ -446,11 +498,24 @@ export default function ProjectDetailPage() {
     if (id) loadProjectSettings(id);
   }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Set this project as the active project so the Sidebar can append ?projectId=
+  // to all Estimating module links while the user is working on it.
+  useEffect(() => {
+    if (project) {
+      setActiveProject({ id: project.id, name: project.name });
+    }
+    // Don't clear on unmount — the user navigates FROM here into modules,
+    // and we want the project to stay active in the sidebar while they work.
+  }, [project]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Map estimates by module key for quick lookup
   const estimateByModule = {};
   estimates.forEach(e => { estimateByModule[e.module] = e; });
 
-  const grandTotal = estimates.reduce((sum, e) => sum + (parseFloat(e.totalCost) || 0), 0);
+  // Exclude SUMMARY from grand total — it contains the final bid (with markup), not a direct cost module
+  const grandTotal = estimates
+    .filter(e => e.module !== 'SUMMARY')
+    .reduce((sum, e) => sum + (parseFloat(e.totalCost) || 0), 0);
   const savedCount = estimates.length;
 
   if (loading) {
@@ -552,6 +617,56 @@ export default function ProjectDetailPage() {
         projectId={project.id}
         onOpen={(mod) => navigate(`${mod.route}?projectId=${project.id}`)}
       />
+
+      {/* Bid Summary — standalone card */}
+      {(() => {
+        const summaryEst = estimateByModule['SUMMARY'];
+        return (
+          <div
+            className="card flex items-center justify-between cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 mb-6"
+            onClick={() => navigate(`/summary?projectId=${project.id}`)}
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center flex-shrink-0">
+                <BarChart3 size={20} className="text-emerald-600" />
+              </div>
+              <div>
+                <div className="font-semibold text-gray-900">Bid Summary</div>
+                <div className="text-xs text-gray-400">Final bid with overhead, margin &amp; tax</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-8">
+              {summaryEst ? (
+                <>
+                  <div className="text-right">
+                    <div className="text-xs text-gray-400 mb-0.5">Total Bid</div>
+                    <div className="text-lg font-bold text-emerald-700">
+                      {Number(summaryEst.totalCost).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-xs text-gray-400 mb-0.5">Material</div>
+                    <div className="text-sm font-semibold text-gray-700">
+                      {Number(summaryEst.totalMaterial).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-xs text-gray-400 mb-0.5">Labor</div>
+                    <div className="text-sm font-semibold text-gray-700">
+                      {Number(summaryEst.totalLabor).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <span className="text-sm text-gray-400 italic">Not yet finalized</span>
+              )}
+              <div className="flex items-center gap-1 text-sm font-medium text-emerald-600">
+                Open <ChevronRight size={16} />
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Member management — admin only */}
       {user?.role === 'ADMIN' && (

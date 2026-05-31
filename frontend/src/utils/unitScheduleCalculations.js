@@ -706,7 +706,8 @@ export function calcSplitUnit(unit) {
   accHours  += baseHours + startHours;
 
   const miscRate    = (Number(unit.miscPct) || 3) / 100;
-  const preMisc     = round2(equipCost + cuLineMaterial + refrigCost + accMaterial);
+  // cuLineMaterial is extracted separately — not included in equipment totalMaterial
+  const preMisc     = round2(equipCost + refrigCost + accMaterial);
   const misc        = round2(preMisc * miscRate);
   const totalMat    = round2(preMisc + misc);
   const totalLabor  = round2(accLabor + cuLineLabor);
@@ -724,7 +725,8 @@ export function calcSplitUnit(unit) {
     totalMaterial: totalMat,
     totalLabor,
     totalHours:    round2(accHours + cuLineHours),
-    totalCost:     round2(totalMat + totalLabor),
+    // Combined still includes copper so overall cost is unchanged
+    totalCost:     round2(totalMat + cuLineMaterial + totalLabor),
   };
 }
 
@@ -817,7 +819,8 @@ export function calcWallMountUnit(unit) {
   accHours  += baseHours + startHours;
 
   const miscRate   = (Number(unit.miscPct) || 3) / 100;
-  const preMisc    = round2(equipCost + cuLineMaterial + refrigCost + accMaterial);
+  // cuLineMaterial is extracted separately — not included in equipment totalMaterial
+  const preMisc    = round2(equipCost + refrigCost + accMaterial);
   const misc       = round2(preMisc * miscRate);
   const totalMat   = round2(preMisc + misc);
   const totalLabor = round2(accLabor + cuLineLabor);
@@ -835,7 +838,7 @@ export function calcWallMountUnit(unit) {
     totalMaterial: totalMat,
     totalLabor,
     totalHours:    round2(accHours + cuLineHours),
-    totalCost:     round2(totalMat + totalLabor),
+    totalCost:     round2(totalMat + cuLineMaterial + totalLabor),
   };
 }
 
@@ -944,7 +947,8 @@ export function calcVRFUnit(unit) {
   accHours  += indHrs + cuHrs + startHrs;
 
   const miscRate   = (Number(unit.miscPct) || 3) / 100;
-  const preMisc    = round2(equipCost + cuLineMaterial + refrigCost + accMaterial);
+  // cuLineMaterial is extracted separately — not included in equipment totalMaterial
+  const preMisc    = round2(equipCost + refrigCost + accMaterial);
   const misc       = round2(preMisc * miscRate);
   const totalMat   = round2(preMisc + misc);
   const totalLabor = round2(accLabor + cuLineLabor);
@@ -962,7 +966,7 @@ export function calcVRFUnit(unit) {
     totalMaterial: totalMat,
     totalLabor,
     totalHours:    round2(accHours + cuLineHours),
-    totalCost:     round2(totalMat + totalLabor),
+    totalCost:     round2(totalMat + cuLineMaterial + totalLabor),
   };
 }
 
@@ -972,13 +976,16 @@ function batchCalc(rows, calcFn) {
   const results = rows.map((r, i) => ({ id: r.id || `row-${i}`, ...calcFn(r) }));
   const totals = results.reduce(
     (acc, r) => ({
-      coolTons:      acc.coolTons      + (Number(r.coolTons) || 0),
-      totalMaterial: acc.totalMaterial + (r.totalMaterial || 0),
-      totalLabor:    acc.totalLabor    + (r.totalLabor    || 0),
-      totalHours:    acc.totalHours    + (r.totalHours    || 0),
-      totalCost:     acc.totalCost     + (r.totalCost     || 0),
+      coolTons:      acc.coolTons      + (Number(r.coolTons)      || 0),
+      totalEquipAcc: acc.totalEquipAcc + (r.equipCost             || 0) + (r.accMaterial || 0) + (r.refrigCost || 0),
+      totalMisc:     acc.totalMisc     + (r.miscCost              || 0),
+      totalMaterial: acc.totalMaterial + (r.totalMaterial         || 0),
+      totalLabor:    acc.totalLabor    + (r.totalLabor            || 0),
+      totalHours:    acc.totalHours    + (r.totalHours            || 0),
+      totalCost:     acc.totalCost     + (r.totalCost             || 0),
+      totalCopper:   acc.totalCopper   + (r.cuLineMaterial        || 0),
     }),
-    { coolTons: 0, totalMaterial: 0, totalLabor: 0, totalHours: 0, totalCost: 0 }
+    { coolTons: 0, totalEquipAcc: 0, totalMisc: 0, totalMaterial: 0, totalLabor: 0, totalHours: 0, totalCost: 0, totalCopper: 0 }
   );
   Object.keys(totals).forEach(k => { totals[k] = round2(totals[k]); });
   return { rows: results, totals };
@@ -1293,33 +1300,38 @@ export const calcLouverDamperBatch = (rows) => batchCalc(rows, calcLouverDamperU
 
 export function rollUpUnitSummary({
   serviceTotals, packagedTotals, splitTotals, wallMountTotals, vrfTotals,
-  fanTotals, louverDamperTotals,
 }) {
   const sections = [
-    { type: SYSTEM_TYPES.PACKAGED,   ...packagedTotals       },
-    { type: SYSTEM_TYPES.SPLIT,      ...splitTotals          },
-    { type: SYSTEM_TYPES.WALL_MOUNT, ...wallMountTotals      },
-    { type: SYSTEM_TYPES.VRF,        ...vrfTotals            },
-    { type: 'Service of Existing',   ...serviceTotals        },
-    { type: 'Fans',                  ...fanTotals            },
-    { type: 'Louvers & Dampers',     ...louverDamperTotals   },
+    { type: SYSTEM_TYPES.PACKAGED,   ...packagedTotals  },
+    { type: SYSTEM_TYPES.SPLIT,      ...splitTotals     },
+    { type: SYSTEM_TYPES.WALL_MOUNT, ...wallMountTotals },
+    { type: SYSTEM_TYPES.VRF,        ...vrfTotals       },
+    { type: 'Service of Existing',   ...serviceTotals   },
   ];
 
   const grand = sections.reduce(
     (acc, s) => ({
+      totalEquipAcc: acc.totalEquipAcc + (s.totalEquipAcc || 0),
+      totalMisc:     acc.totalMisc     + (s.totalMisc     || 0),
       totalMaterial: acc.totalMaterial + (s.totalMaterial || 0),
       totalLabor:    acc.totalLabor    + (s.totalLabor    || 0),
       totalCost:     acc.totalCost     + (s.totalCost     || 0),
+      coolTons:      acc.coolTons      + (s.coolTons      || 0),
+      totalCopper:   acc.totalCopper   + (s.totalCopper   || 0),
     }),
-    { totalMaterial: 0, totalLabor: 0, totalCost: 0 }
+    { totalEquipAcc: 0, totalMisc: 0, totalMaterial: 0, totalLabor: 0, totalCost: 0, coolTons: 0, totalCopper: 0 }
   );
 
   return {
     sections,
     grand: {
+      totalEquipAcc: round2(grand.totalEquipAcc),
+      totalMisc:     round2(grand.totalMisc),
       totalMaterial: round2(grand.totalMaterial),
       totalLabor:    round2(grand.totalLabor),
       totalCost:     round2(grand.totalCost),
+      coolTons:      round2(grand.coolTons),
+      totalCopper:   round2(grand.totalCopper),
     },
   };
 }

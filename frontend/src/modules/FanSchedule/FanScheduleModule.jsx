@@ -8,6 +8,7 @@ import {
   DEFAULT_WALL_PEN_COST,
   DEFAULT_MISC_PCT,
   DEFAULT_LABOR_RATE,
+  buildDefaultHoursOverrides,
 } from '@utils/fanScheduleCalculations';
 import { saveModuleTotals } from '@utils/projectTotals';
 import FanRow from './FanRow';
@@ -21,11 +22,13 @@ import { SettingsContext } from '@contexts/SettingsContext';
 
 // ─── Default settings (mirror Excel config cells) ─────────────────────────────
 // laborRate is seeded from pricingConfig at runtime so it reflects company/project settings.
+// laborHoursOverrides starts as the Excel table; any cell can be changed per-project.
 const DEFAULT_SETTINGS = {
-  roofPenCost: DEFAULT_ROOF_PEN_COST,   // $T$5 = $100
-  wallPenCost: DEFAULT_WALL_PEN_COST,   // $T$7 = $200
-  miscPct:     DEFAULT_MISC_PCT,         // $M$3 = 20%
-  laborRate:   DEFAULT_LABOR_RATE,       // overridden at init from pricingConfig.rateFan
+  roofPenCost:         DEFAULT_ROOF_PEN_COST,          // $T$5 = $100
+  wallPenCost:         DEFAULT_WALL_PEN_COST,          // $T$7 = $200
+  miscPct:             DEFAULT_MISC_PCT,               // $M$3 = 20%
+  laborRate:           DEFAULT_LABOR_RATE,             // overridden at init from pricingConfig.rateFan
+  laborHoursOverrides: buildDefaultHoursOverrides(),   // editable copy of Excel Z5:AC11 table
 };
 
 // ─── Row factory ───────────────────────────────────────────────────────────────
@@ -70,21 +73,26 @@ export default function FanScheduleModule() {
   const settingsSnapshotRef = useSettingsAutoSave(settings, activeProjectId, () =>
     savePricingConfig({
       fanSettings: {
-        laborRate:   settings.laborRate,
-        miscPct:     settings.miscPct,
-        roofPenCost: settings.roofPenCost,
-        wallPenCost: settings.wallPenCost,
+        laborRate:           settings.laborRate,
+        miscPct:             settings.miscPct,
+        roofPenCost:         settings.roofPenCost,
+        wallPenCost:         settings.wallPenCost,
+        laborHoursOverrides: settings.laborHoursOverrides,
       },
     }),
   );
 
   // Sync laborRate + project fanSettings when pricingConfig changes (e.g. after project load)
   useEffect(() => {
-    const overrides = pricingConfig.fanSettings ?? {};
+    const saved = pricingConfig.fanSettings ?? {};
     const newSettings = {
-      ...settings,
+      ...DEFAULT_SETTINGS,
       laborRate: pricingConfig.rateFan ?? DEFAULT_LABOR_RATE,
-      ...overrides,
+      ...saved,
+      // Merge saved overrides on top of defaults so new fan types added in code still appear
+      laborHoursOverrides: saved.laborHoursOverrides
+        ? { ...buildDefaultHoursOverrides(), ...saved.laborHoursOverrides }
+        : buildDefaultHoursOverrides(),
     };
     settingsSnapshotRef.current = JSON.stringify(newSettings); // don't count DB-sync as dirty
     setSettings(newSettings);
@@ -114,36 +122,37 @@ export default function FanScheduleModule() {
     }
   }, [loadEstimate, projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Auto-push totals to Dashboard whenever results change ──────────────────
+  // ── Auto-calculate + save totals whenever rows or settings change ──────────
   useEffect(() => {
-    if (!results) return;
-    const { totals } = results;
-    saveModuleTotals('fan_schedule', {
-      totalMaterial: totals.totalMaterial,
-      totalLabor:    totals.totalLaborFinal,
-      totalCost:     totals.totalMatPlusLab,
-    });
-  }, [results]);
-
-  // ── Calculate ──────────────────────────────────────────────────────────────
-  const calculate = useCallback(() => {
     const filled = rows.filter((r) => r.fanType);
-    if (filled.length === 0) {
-      toast.error('Add at least one fan type');
-      return;
-    }
+    if (filled.length === 0) { setResults(null); return; }
     const batch = calculateFanBatch(rows, settings);
     setResults(batch);
-    toast.success(`Calculated ${filled.length} fan(s)`);
+    saveModuleTotals('fan_schedule', {
+      totalMaterial: batch.totals.totalMaterial,
+      totalLabor:    batch.totals.totalLaborFinal,
+      totalCost:     batch.totals.totalMatPlusLab,
+    });
     if (projectId) {
       saveEstimate({
         rowsJson:      rows,
         totalMaterial: batch.totals.totalMaterial,
         totalLabor:    batch.totals.totalLaborFinal,
         totalCost:     batch.totals.totalMatPlusLab,
+        totalHours:    batch.totals.totalLaborHours,
       });
     }
-  }, [rows, settings, projectId, saveEstimate]);
+  }, [rows, settings, projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Manual Calculate (kept for toast feedback) ────────────────────────────
+  const calculate = useCallback(() => {
+    const filled = rows.filter((r) => r.fanType);
+    if (filled.length === 0) {
+      toast.error('Add at least one fan type');
+      return;
+    }
+    toast.success(`Calculated ${filled.length} fan(s)`);
+  }, [rows]);
 
   // ── Row handlers ───────────────────────────────────────────────────────────
   const handleRowChange = useCallback((id, field, value) => {
@@ -288,10 +297,11 @@ export default function FanScheduleModule() {
             try {
               await savePricingConfig({
                 fanSettings: {
-                  laborRate:   current.laborRate,
-                  miscPct:     current.miscPct,
-                  roofPenCost: current.roofPenCost,
-                  wallPenCost: current.wallPenCost,
+                  laborRate:           current.laborRate,
+                  miscPct:             current.miscPct,
+                  roofPenCost:         current.roofPenCost,
+                  wallPenCost:         current.wallPenCost,
+                  laborHoursOverrides: current.laborHoursOverrides,
                 },
               });
               toast.success('Fan settings saved to project');

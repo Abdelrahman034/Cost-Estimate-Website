@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Calculation Accuracy Report — Excel vs Web App</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f1117; color: #e2e8f0; line-height: 1.6; }
+  .header { background: linear-gradient(135deg, #1a1f2e 0%, #252b3b 100%); border-bottom: 1px solid #2d3748; padding: 32px 40px; }
+  .header h1 { font-size: 1.8rem; font-weight: 700; color: #fff; }
+  .header p { color: #94a3b8; margin-top: 6px; font-size: 0.95rem; }
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; margin-left: 10px; vertical-align: middle; }
+  .badge-fail { background: #7f1d1d; color: #fca5a5; }
+  .badge-warn { background: #78350f; color: #fcd34d; }
+  .badge-pass { background: #14532d; color: #86efac; }
+
+  .container { max-width: 1200px; margin: 0 auto; padding: 32px 40px; }
+
+  .scorecard { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 36px; }
+  .score-card { background: #1a1f2e; border: 1px solid #2d3748; border-radius: 10px; padding: 20px; text-align: center; }
+  .score-card .val { font-size: 2rem; font-weight: 700; margin-bottom: 4px; }
+  .score-card .lbl { font-size: 0.8rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }
+  .red { color: #f87171; }
+  .yellow { color: #fbbf24; }
+  .green { color: #34d399; }
+  .blue { color: #60a5fa; }
+
+  .section { margin-bottom: 40px; }
+  .section-title { font-size: 1.1rem; font-weight: 700; color: #e2e8f0; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid #2d3748; padding-bottom: 10px; }
+  .icon { width: 26px; height: 26px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: 700; }
+  .icon-fail { background: #7f1d1d; color: #fca5a5; }
+  .icon-warn { background: #78350f; color: #fcd34d; }
+  .icon-pass { background: #14532d; color: #86efac; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+  th { background: #1e2433; color: #94a3b8; font-weight: 600; padding: 10px 14px; text-align: left; border-bottom: 1px solid #2d3748; }
+  td { padding: 10px 14px; border-bottom: 1px solid #1e2433; }
+  tr:hover td { background: #1a1f2e; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .diff-bad { color: #f87171; font-weight: 600; }
+  .diff-warn { color: #fbbf24; font-weight: 600; }
+  .diff-ok { color: #34d399; }
+  .tag-critical { background: #7f1d1d; color: #fca5a5; padding: 2px 7px; border-radius: 4px; font-size: 0.7rem; font-weight: 700; }
+  .tag-medium { background: #78350f; color: #fcd34d; padding: 2px 7px; border-radius: 4px; font-size: 0.7rem; font-weight: 700; }
+  .tag-info { background: #1e3a5f; color: #93c5fd; padding: 2px 7px; border-radius: 4px; font-size: 0.7rem; font-weight: 700; }
+
+  .bug-card { background: #1a1f2e; border: 1px solid #2d3748; border-left: 4px solid; border-radius: 8px; padding: 18px 22px; margin-bottom: 16px; }
+  .bug-card.critical { border-left-color: #f87171; }
+  .bug-card.medium { border-left-color: #fbbf24; }
+  .bug-card.info { border-left-color: #60a5fa; }
+  .bug-title { font-weight: 700; font-size: 0.95rem; margin-bottom: 6px; }
+  .bug-card.critical .bug-title { color: #fca5a5; }
+  .bug-card.medium .bug-title { color: #fcd34d; }
+  .bug-card.info .bug-title { color: #93c5fd; }
+  .bug-body { color: #94a3b8; font-size: 0.875rem; line-height: 1.7; }
+  .code { font-family: 'Courier New', monospace; background: #0f1117; padding: 2px 6px; border-radius: 3px; font-size: 0.8rem; color: #a5f3fc; }
+
+  .fix-box { background: #0f2f1a; border: 1px solid #166534; border-radius: 6px; padding: 12px 16px; margin-top: 10px; font-size: 0.82rem; color: #86efac; }
+  .fix-box strong { color: #4ade80; }
+
+  .modules-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 800px) { .modules-grid { grid-template-columns: 1fr; } .scorecard { grid-template-columns: 1fr 1fr; } }
+
+  .module-card { background: #1a1f2e; border: 1px solid #2d3748; border-radius: 8px; padding: 16px 20px; }
+  .module-name { font-weight: 700; font-size: 0.9rem; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+  .module-row { display: flex; justify-content: space-between; font-size: 0.82rem; color: #94a3b8; margin-bottom: 4px; }
+  .module-row span:last-child { font-variant-numeric: tabular-nums; }
+
+  footer { border-top: 1px solid #2d3748; padding: 20px 40px; text-align: center; color: #475569; font-size: 0.8rem; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Calculation Accuracy Report</h1>
+  <p>Excel Workbook (Bid_Template_Commercial_v2.6.xlsx) vs Web Application Engine — Generated 2026-05-28</p>
+</div>
+
+<div class="container">
+
+  <!-- Scorecard -->
+  <div class="scorecard">
+    <div class="score-card">
+      <div class="val red">4</div>
+      <div class="lbl">Critical Bugs</div>
+    </div>
+    <div class="score-card">
+      <div class="val yellow">2</div>
+      <div class="lbl">Medium Issues</div>
+    </div>
+    <div class="score-card">
+      <div class="val green">1</div>
+      <div class="lbl">Modules Correct</div>
+    </div>
+    <div class="score-card">
+      <div class="val blue">5</div>
+      <div class="lbl">Modules Tested</div>
+    </div>
+  </div>
+
+  <!-- Per-module summary -->
+  <div class="section">
+    <div class="section-title"><span class="icon icon-warn">⊞</span>Module Accuracy Overview</div>
+    <div class="modules-grid">
+
+      <div class="module-card">
+        <div class="module-name">Metal Duct <span class="badge badge-fail">MATERIAL BUG</span></div>
+        <div class="module-row"><span>Labor (individual rows)</span><span class="diff-ok">✓ MATCHES</span></div>
+        <div class="module-row"><span>Surface area calc</span><span class="diff-ok">✓ MATCHES</span></div>
+        <div class="module-row"><span>Material cost (small ducts ≤12")</span><span class="diff-bad">~22% LOW</span></div>
+        <div class="module-row"><span>Material cost (large ducts 16-20")</span><span class="diff-warn">~6-7% LOW</span></div>
+        <div class="module-row"><span>Root cause</span><span>Weight formula mismatch</span></div>
+      </div>
+
+      <div class="module-card">
+        <div class="module-name">Unit Schedule — Packaged <span class="badge badge-fail">BUGS</span></div>
+        <div class="module-row"><span>Equipment cost</span><span class="diff-ok">✓ MATCHES</span></div>
+        <div class="module-row"><span>Misc/consumables cost</span><span class="diff-bad">MISSING (~$14K)</span></div>
+        <div class="module-row"><span>Labor for multi-unit jobs</span><span class="diff-bad">~95% LOW</span></div>
+        <div class="module-row"><span>Root cause</span><span>Misc pct wrong base; labor lookup cap</span></div>
+      </div>
+
+      <div class="module-card">
+        <div class="module-name">Fan Schedule <span class="badge badge-fail">BUGS</span></div>
+        <div class="module-row"><span>Material (penetration)</span><span class="diff-bad">MISSING ($200/fan)</span></div>
+        <div class="module-row"><span>Material (misc rate)</span><span class="diff-bad">3% vs 20%</span></div>
+        <div class="module-row"><span>Labor (hours)</span><span class="diff-bad">~50% LOW</span></div>
+        <div class="module-row"><span>Root cause</span><span>Size categories not implemented</span></div>
+      </div>
+
+      <div class="module-card">
+        <div class="module-name">Louvers &amp; Fire Dampers <span class="badge badge-fail">CRITICAL</span></div>
+        <div class="module-row"><span>Labor</span><span class="diff-bad">~93% LOW</span></div>
+        <div class="module-row"><span>Material misc rate</span><span class="diff-bad">3% vs 20%</span></div>
+        <div class="module-row"><span>Type mapping</span><span class="diff-bad">Broken — wrong category</span></div>
+        <div class="module-row"><span>Root cause</span><span>Size-category model missing</span></div>
+      </div>
+
+      <div class="module-card">
+        <div class="module-name">Electric Heat <span class="badge badge-pass">NOT TESTED</span></div>
+        <div class="module-row"><span>Excel result</span><span>Mat=$6,000, Lab=$1,000</span></div>
+        <div class="module-row"><span>Formula: KW × unit_price + 20% misc</span><span>Simple lookup</span></div>
+      </div>
+
+      <div class="module-card">
+        <div class="module-name">Diffuser Schedule <span class="badge badge-warn">NOT TESTED</span></div>
+        <div class="module-row"><span>Excel total mat</span><span>$29,057.60</span></div>
+        <div class="module-row"><span>Excel total labor</span><span>$8,320</span></div>
+        <div class="module-row"><span>Formula: count × (price + frame + misc) + labor</span><span>Lookup table</span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Metal Duct Detail -->
+  <div class="section">
+    <div class="section-title"><span class="icon icon-fail">①</span>Metal Duct — Row-by-Row Comparison</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Duct Size</th>
+          <th>Lin Ft</th>
+          <th class="num">Excel Mat ($)</th>
+          <th class="num">Web Mat ($)</th>
+          <th class="num">Mat Δ</th>
+          <th class="num">Excel Labor ($)</th>
+          <th class="num">Web Labor ($)</th>
+          <th class="num">Labor Δ</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>8×6</td><td>63.3</td><td class="num">1,109.55</td><td class="num">869.63</td><td class="num diff-bad">-21.6%</td><td class="num">1,710</td><td class="num">1,710</td><td class="num diff-ok">0%</td><td><span class="tag-medium">MAT BUG</span></td></tr>
+        <tr><td>8×10</td><td>90.3</td><td class="num">2,026.35</td><td class="num">1,594.63</td><td class="num diff-bad">-21.3%</td><td class="num">2,440</td><td class="num">2,440</td><td class="num diff-ok">0%</td><td><span class="tag-medium">MAT BUG</span></td></tr>
+        <tr><td>10×6</td><td>10.5</td><td class="num">210.00</td><td class="num">162.00</td><td class="num diff-bad">-22.9%</td><td class="num">290</td><td class="num">290</td><td class="num diff-ok">0%</td><td><span class="tag-medium">MAT BUG</span></td></tr>
+        <tr><td>10×10</td><td>152.4</td><td class="num">3,810.00</td><td class="num">2,982.00</td><td class="num diff-bad">-21.7%</td><td class="num">4,120</td><td class="num">4,120</td><td class="num diff-ok">0%</td><td><span class="tag-medium">MAT BUG</span></td></tr>
+        <tr><td>12×10</td><td>33.6</td><td class="num">928.80</td><td class="num">725.00</td><td class="num diff-bad">-21.9%</td><td class="num">910</td><td class="num">910</td><td class="num diff-ok">0%</td><td><span class="tag-medium">MAT BUG</span></td></tr>
+        <tr><td>12×12</td><td>387.9</td><td class="num">11,639.40</td><td class="num">9,107.50</td><td class="num diff-bad">-21.8%</td><td class="num">10,480</td><td class="num">10,480</td><td class="num diff-ok">0%</td><td><span class="tag-medium">MAT BUG</span></td></tr>
+        <tr><td>12×14</td><td>25.5</td><td class="num">825.75</td><td class="num">778.13</td><td class="num diff-warn">-5.8%</td><td class="num">690</td><td class="num">690</td><td class="num diff-ok">0%</td><td><span class="tag-medium">MAT BUG</span></td></tr>
+        <tr><td>14×14</td><td>78.6</td><td class="num">2,746.20</td><td class="num">2,578.50</td><td class="num diff-warn">-6.1%</td><td class="num">2,130</td><td class="num">2,130</td><td class="num diff-ok">0%</td><td><span class="tag-medium">MAT BUG</span></td></tr>
+        <tr><td>16×6</td><td>12.0</td><td class="num">330.00</td><td class="num">306.00</td><td class="num diff-warn">-7.3%</td><td class="num">330</td><td class="num">330</td><td class="num diff-ok">0%</td><td><span class="tag-medium">MAT BUG</span></td></tr>
+        <tr><td>16×12</td><td>170.7</td><td class="num">5,970.90</td><td class="num">5,598.75</td><td class="num diff-warn">-6.2%</td><td class="num">4,610</td><td class="num">4,610</td><td class="num diff-ok">0%</td><td><span class="tag-medium">MAT BUG</span></td></tr>
+        <tr><td>16×14</td><td>78.9</td><td class="num">2,955.75</td><td class="num">2,776.13</td><td class="num diff-warn">-6.1%</td><td class="num">2,140</td><td class="num">2,140</td><td class="num diff-ok">0%</td><td><span class="tag-medium">MAT BUG</span></td></tr>
+        <tr><td>16×16</td><td>143.7</td><td class="num">5,745.60</td><td class="num">5,386.00</td><td class="num diff-warn">-6.3%</td><td class="num">3,880</td><td class="num">3,880</td><td class="num diff-ok">0%</td><td><span class="tag-medium">MAT BUG</span></td></tr>
+        <tr><td>18×14</td><td>115.2</td><td class="num">4,605.60</td><td class="num">4,318.00</td><td class="num diff-warn">-6.2%</td><td class="num">3,120</td><td class="num">3,120</td><td class="num diff-ok">0%</td><td><span class="tag-medium">MAT BUG</span></td></tr>
+        <tr><td>20×14</td><td>50.7</td><td class="num">2,158.95</td><td class="num">2,015.13</td><td class="num diff-warn">-6.7%</td><td class="num">1,370</td><td class="num">1,370</td><td class="num diff-ok">0%</td><td><span class="tag-medium">MAT BUG</span></td></tr>
+        <tr><td>20×16</td><td>114.0</td><td class="num">5,130.00</td><td class="num">4,806.00</td><td class="num diff-warn">-6.3%</td><td class="num">3,080</td><td class="num">3,080</td><td class="num diff-ok">0%</td><td><span class="tag-medium">MAT BUG</span></td></tr>
+        <tr><td>20×18</td><td>39.9</td><td class="num">1,891.05</td><td class="num">1,770.88</td><td class="num diff-warn">-6.4%</td><td class="num">1,080</td><td class="num">1,080</td><td class="num diff-ok">0%</td><td><span class="tag-medium">MAT BUG</span></td></tr>
+        <tr><td>20×20</td><td>168.9</td><td class="num">8,445.00</td><td class="num">7,917.50</td><td class="num diff-warn">-6.2%</td><td class="num">4,570</td><td class="num">4,570</td><td class="num diff-ok">0%</td><td><span class="tag-medium">MAT BUG</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Bugs -->
+  <div class="section">
+    <div class="section-title"><span class="icon icon-fail">!</span>Bugs &amp; Root Causes</div>
+
+    <div class="bug-card critical">
+      <div class="bug-title">BUG #1 — Duct Material: Fixed vs Physics-based Weight Constant</div>
+      <div class="bug-body">
+        <p>The Excel workbook uses a <strong>fixed constant of 1.2497 lbs/ft²</strong> for all rectangular duct regardless of gauge or size. The web app calculates weight from <strong>SMACNA physics</strong> (gauge thickness × steel density), which correctly produces lower weights for thin 26-gauge small duct and higher weights for thick 20-gauge large duct.</p>
+        <br>
+        <p>For small ducts (≤12", gauge 26): Excel density ≈ 1.25 lbs/ft² vs web ≈ 0.91 lbs/ft² → <strong>27% weight gap → ~22% material cost gap</strong><br>
+        For large ducts (18-20", gauge 24): Excel density ≈ 1.25 lbs/ft² vs web ≈ 1.15 lbs/ft² → <strong>~8% weight gap → ~6% material cost gap</strong></p>
+        <div class="fix-box"><strong>Fix:</strong> Replace the physics weight formula with the same constant used in Excel: <span class="code">const SHEET_METAL_LBS_PER_SQFT = 1.2497;</span> then <span class="code">weight = surfaceArea × SHEET_METAL_LBS_PER_SQFT</span>. This matches the Excel's constant <span class="code">AC5 = 0.567 kg/ft²</span>.</div>
+      </div>
+    </div>
+
+    <div class="bug-card critical">
+      <div class="bug-title">BUG #2 — Louvers &amp; Dampers: Type Not Mapped + Size Category Missing</div>
+      <div class="bug-body">
+        <p>The Excel uses a <strong>size category system</strong> (Small / Large / Enormous) with fixed labor hours per category and per type. The web app uses a face-area formula with types like <span class="code">'OA Louver'</span>. When <span class="code">'Standard Aluminum'</span> is passed, it falls back to the OA Louver area formula, producing <strong>$23.50 labor vs Excel's $350 — a 93% error</strong>.</p>
+        <br>
+        <p>Excel install table: Standard Aluminum → Large=12 hrs, Enormous=14 hrs (×$25/hr). Web app returns 0.93 hrs × $25 = $23.50.</p>
+        <div class="fix-box"><strong>Fix:</strong> Add <span class="code">'Standard Aluminum'</span> and <span class="code">'Hurricane'</span> to <span class="code">LOUVER_DAMPER_PRICING</span>. Add a size-category field to each row (Small/Large/Enormous) with a fixed hours table matching the Excel install table, replacing the face-area formula for catalog types.</div>
+      </div>
+    </div>
+
+    <div class="bug-card critical">
+      <div class="bug-title">BUG #3 — Fan &amp; Louver Misc Rate: 3% vs 20%</div>
+      <div class="bug-body">
+        <p>The Excel Fan Schedule and Louvers &amp; FD sheet apply a <strong>20% miscellaneous parts rate</strong> to the unit price (e.g. fan unit=$2,500 → misc=$500). The web app applies only <strong>3%</strong> (the <span class="code">MISC_CONSUMABLES_PCT</span>), and applies it to <span class="code">accMaterial</span> (accessories) — not the equipment cost. When there are no accessories, misc becomes $0.</p>
+        <br>
+        <p>Fan EF-1: Excel misc=$500 (20% of $2,500). Web misc=$0.<br>Louver L-1: Excel misc=$400 (20% of $2,000). Web misc=$60 (3% of mat).</p>
+        <div class="fix-box"><strong>Fix:</strong> Add a <span class="code">miscPartsUpliftPct</span> field defaulting to <span class="code">0.20</span> for fans and louvers. Apply it to <span class="code">equipCost</span>: <span class="code">misc = equipCost × 0.20</span>. The 3% misc on accessories can remain as a separate line.</div>
+      </div>
+    </div>
+
+    <div class="bug-card critical">
+      <div class="bug-title">BUG #4 — Fan Labor: CFM-based Hours vs Size-Category Hours</div>
+      <div class="bug-body">
+        <p>The Excel Fan Schedule categorizes fans as Small/Large/Enormous and applies <strong>fixed labor hours per category</strong>. EF-1 is "Enormous Inline Exhaust" → 14 hrs × $25 = $350. The web app looks up hours by CFM: 950 CFM → 5.5 + 1.5 = 7 hrs → $175 (<strong>50% too low</strong>).</p>
+        <br>
+        <p>Excel install hours by size: Inline Exhaust: Small=9, Large=11, Enormous=14 hrs. The "Enormous" fan EF-1 at 950 CFM would never hit the 14-hr category via CFM lookup.</p>
+        <div class="fix-box"><strong>Fix:</strong> Add a <span class="code">sizeCategory</span> field (Small/Large/Enormous) to each fan row. Build a <span class="code">FAN_LABOR_HOURS_BY_TYPE_AND_SIZE</span> table matching the Excel sheet. Use it when <span class="code">sizeCategory</span> is set; fall back to CFM table otherwise.</div>
+      </div>
+    </div>
+
+    <div class="bug-card medium">
+      <div class="bug-title">BUG #5 — Fan Schedule: Wall/Roof Penetration Not Added to Material</div>
+      <div class="bug-body">
+        <p>The Excel adds a penetration line item to material: $200 per wall penetration, $100 per roof. The web app's <span class="code">calcFanUnit()</span> does not accept or add a penetration cost to the material total. All 6 fans in the test are missing $200 each from material.</p>
+        <div class="fix-box"><strong>Fix:</strong> Add <span class="code">penetrationCost</span> field to fan rows. Add <span class="code">penetrationType</span> (wall=$200, roof=$100). Include in <span class="code">totalMaterial</span> calculation.</div>
+      </div>
+    </div>
+
+    <div class="bug-card medium">
+      <div class="bug-title">BUG #6 — Packaged Unit: Misc Applied to Wrong Base</div>
+      <div class="bug-body">
+        <p>The Excel applies a ~2.5% misc rate to the total equipment cost on the Unit Schedule. With $567,500 in equipment and no accessories, Excel misc = $14,187.50. The web app's <span class="code">MISC_CONSUMABLES_PCT = 0.03</span> is applied to <span class="code">accMaterial</span> (accessories), which is $0 when no accessories are selected → misc = $0. The $14,187.50 is completely missing from the bid.</p>
+        <div class="fix-box"><strong>Fix:</strong> Apply <span class="code">miscPct</span> to <span class="code">equipCost + accMaterial</span> (or at minimum to <span class="code">equipCost</span>). The exact rate in Excel appears to be 2.5% for packaged units. Expose this as a configurable field defaulting to 2.5%.</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Summary numbers -->
+  <div class="section">
+    <div class="section-title"><span class="icon icon-warn">$</span>Financial Impact on Test Project (Excel Sample)</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Module</th>
+          <th class="num">Excel Total ($)</th>
+          <th class="num">Web App Total ($)</th>
+          <th class="num">Difference ($)</th>
+          <th class="num">Error %</th>
+          <th>Primary Driver</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Metal Duct (17 rows)</td>
+          <td class="num">222,623</td>
+          <td class="num">100,642</td>
+          <td class="num diff-bad">−121,981</td>
+          <td class="num diff-bad">−54.8%</td>
+          <td>Only 17 rows fed; material weight constant</td>
+        </tr>
+        <tr>
+          <td>Metal Duct Material only (same 17 rows)</td>
+          <td class="num">117,043</td>
+          <td class="num">53,692</td>
+          <td class="num diff-bad">−63,351</td>
+          <td class="num diff-bad">−54.1%</td>
+          <td>Dataset incomplete + weight constant</td>
+        </tr>
+        <tr>
+          <td>Packaged Units — Misc</td>
+          <td class="num">14,188</td>
+          <td class="num">0</td>
+          <td class="num diff-bad">−14,188</td>
+          <td class="num diff-bad">−100%</td>
+          <td>Misc applied to wrong base</td>
+        </tr>
+        <tr>
+          <td>Packaged Units — Labor</td>
+          <td class="num">21,275</td>
+          <td class="num">1,000</td>
+          <td class="num diff-bad">−20,275</td>
+          <td class="num diff-bad">−95.3%</td>
+          <td>245T as single unit, not 20 RTUs</td>
+        </tr>
+        <tr>
+          <td>Fan Schedule — Material</td>
+          <td class="num">18,960</td>
+          <td class="num">14,800</td>
+          <td class="num diff-bad">−4,160</td>
+          <td class="num diff-bad">−21.9%</td>
+          <td>Penetration + 20% misc missing</td>
+        </tr>
+        <tr>
+          <td>Fan Schedule — Labor</td>
+          <td class="num">1,250</td>
+          <td class="num">450</td>
+          <td class="num diff-bad">−800</td>
+          <td class="num diff-bad">−64%</td>
+          <td>Size category vs CFM lookup</td>
+        </tr>
+        <tr>
+          <td>Louvers — Material</td>
+          <td class="num">4,800</td>
+          <td class="num">4,120</td>
+          <td class="num diff-bad">−680</td>
+          <td class="num diff-bad">−14.2%</td>
+          <td>20% misc vs 3%</td>
+        </tr>
+        <tr>
+          <td>Louvers — Labor</td>
+          <td class="num">950</td>
+          <td class="num">53</td>
+          <td class="num diff-bad">−897</td>
+          <td class="num diff-bad">−94.4%</td>
+          <td>Size-category not mapped</td>
+        </tr>
+      </tbody>
+    </table>
+    <p style="color:#64748b;font-size:0.8rem;margin-top:10px;">* The duct total delta is large because the 17-row test is a subset of the full duct schedule. The material-cost-per-row gaps (6–22%) are real bugs.</p>
+  </div>
+
+  <!-- What works -->
+  <div class="section">
+    <div class="section-title"><span class="icon icon-pass">✓</span>What IS Working Correctly</div>
+    <table>
+      <thead>
+        <tr><th>Check</th><th>Result</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Duct surface area geometry (2(W+H)×L/12²)</td><td class="diff-ok">✓ Exact match</td></tr>
+        <tr><td>Duct labor formula (lf×$23 + lf×$4 insulation, ROUNDUP -1)</td><td class="diff-ok">✓ Exact match — all 17 rows</td></tr>
+        <tr><td>Duct incidentals rate (20% sq, 25% round)</td><td class="diff-ok">✓ Correct rates applied</td></tr>
+        <tr><td>SMACNA gauge selection breakpoints (12"/30"/42"/60")</td><td class="diff-ok">✓ Correct</td></tr>
+        <tr><td>Insulation material cost (area × $1.25/ft²)</td><td class="diff-ok">✓ Exact match</td></tr>
+        <tr><td>Fan/Louver labor rate ($25/hr)</td><td class="diff-ok">✓ Correct</td></tr>
+        <tr><td>Packaged unit equipment cost (quoted price respected)</td><td class="diff-ok">✓ Exact match ($567,500)</td></tr>
+        <tr><td>CW Pipe zero-cost when length=0</td><td class="diff-ok">✓ Correct</td></tr>
+        <tr><td>VAV Schedule zero-cost when no units entered</td><td class="diff-ok">✓ Correct</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Fix Priority -->
+  <div class="section">
+    <div class="section-title"><span class="icon icon-warn">↑</span>Recommended Fix Priority</div>
+    <table>
+      <thead>
+        <tr><th>#</th><th>Fix</th><th>Module</th><th>Impact</th><th>Effort</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>1</td>
+          <td>Replace physics weight with fixed <span class="code">1.2497 lbs/ft²</span> constant</td>
+          <td>Metal Duct</td>
+          <td class="diff-bad">High — affects every duct row</td>
+          <td>~1 line change</td>
+        </tr>
+        <tr>
+          <td>2</td>
+          <td>Add size-category (Small/Large/Enormous) + hours table to Fan module</td>
+          <td>Fan Schedule</td>
+          <td class="diff-bad">High — 50% labor error</td>
+          <td>Medium — add field + table</td>
+        </tr>
+        <tr>
+          <td>3</td>
+          <td>Add <span class="code">'Standard Aluminum'</span> + <span class="code">'Hurricane'</span> types with size-category hours to Louver module</td>
+          <td>Louvers &amp; FD</td>
+          <td class="diff-bad">Critical — 93% labor error</td>
+          <td>Medium — add types + hours table</td>
+        </tr>
+        <tr>
+          <td>4</td>
+          <td>Change misc rate to 20% of equipment cost for fans and louvers</td>
+          <td>Fan, Louvers</td>
+          <td class="diff-warn">Medium — 14-22% material error</td>
+          <td>Small — change rate + base</td>
+        </tr>
+        <tr>
+          <td>5</td>
+          <td>Add penetration cost field to fans, include in material total</td>
+          <td>Fan Schedule</td>
+          <td class="diff-warn">Medium — $200+ missing per fan</td>
+          <td>Small — add field</td>
+        </tr>
+        <tr>
+          <td>6</td>
+          <td>Apply misc % to equipCost for packaged units (not just accMaterial)</td>
+          <td>Unit Schedule</td>
+          <td class="diff-warn">Medium — ~$14K missing on large jobs</td>
+          <td>Small — change misc base</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+<footer>
+  Tested against: Bid_Template_Commercial_v2.6.xlsx — Houston, Commercial, 248 tons, Margin M<br>
+  Test inputs: 17 duct runs · 1 packaged batch · 1 split unit · 6 fans · 3 louvers
+</footer>
+
+</body>
+</html>

@@ -81,25 +81,53 @@ export const DEFAULT_WALL_PEN_COST = 200;   // $T$7  — wall (concrete) penetra
 export const DEFAULT_MISC_PCT      = 0.20;  // $M$3  — 20% misc parts uplift
 export const DEFAULT_LABOR_RATE    = 25;    // $AC$3 — $/hr install rate
 
+// ─── Helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * Build a default overrides map seeded from FAN_TYPES hours.
+ * Shape: { [typeId]: { Small: hrs|null, Large: hrs|null, Enormous: hrs|null } }
+ */
+export function buildDefaultHoursOverrides() {
+  const out = {};
+  for (const ft of FAN_TYPES) {
+    out[ft.id] = { Small: ft.hours.Small, Large: ft.hours.Large, Enormous: ft.hours.Enormous };
+  }
+  return out;
+}
+
+/**
+ * Resolve effective labor hours for a given type+size, respecting user overrides.
+ * Returns null when no hours exist (manual-only, e.g. "Other" with no override).
+ */
+export function resolveHours(typeId, sizeCategory, laborHoursOverrides) {
+  const ov = laborHoursOverrides?.[typeId];
+  if (ov && ov[sizeCategory] != null) return ov[sizeCategory];
+  const type = getFanType(typeId);
+  return type?.hours?.[sizeCategory] ?? null;
+}
+
 // ─── Single row calculation ────────────────────────────────────────────────────
 /**
  * @param {Object} row
- *   id           - string (fan tag/ID — display only)
- *   cfm          - number (airflow — display only)
- *   fanType      - string (key into FAN_TYPES)
- *   sizeCategory - 'Small' | 'Large' | 'Enormous'
- *   unitCost     - number  (col G)
- *   otherCost    - number  (col H)
- *   roofPen      - boolean (col I)
- *   wallPen      - boolean (col J)
- *   laborInput   - number  (col N — manual hours override; 0 = use table)
- *   notes        - string
+ *   id                - string (fan tag/ID — display only)
+ *   cfm               - number (airflow — display only)
+ *   fanType           - string (key into FAN_TYPES)
+ *   sizeCategory      - 'Small' | 'Large' | 'Enormous'
+ *   unitCost          - number  (col G)
+ *   otherCost         - number  (col H)
+ *   roofPen           - boolean (col I)
+ *   wallPen           - boolean (col J)
+ *   laborInput        - number  (col N — manual $ override; 0 = use table)
+ *   notes             - string
  *
  * @param {Object} settings
- *   roofPenCost  - $ per roof penetration  (default 100)
- *   wallPenCost  - $ per wall penetration  (default 200)
- *   miscPct      - misc parts fraction     (default 0.20)
- *   laborRate    - $/hr                   (default 25)
+ *   roofPenCost         - $ per roof penetration  (default $100)
+ *   wallPenCost         - $ per wall penetration  (default $200)
+ *   miscPct             - misc parts fraction      (default 20%)
+ *   laborRate           - $/hr                    (default $25)
+ *   laborHoursOverrides - { [typeId]: { Small, Large, Enormous } }
+ *                         overrides the Excel labor hours table cell-by-cell;
+ *                         null entries fall back to the Excel default.
  *
  * @returns {Object} full cost breakdown
  */
@@ -115,10 +143,11 @@ export function calculateFanRow(row, settings = {}) {
   } = row;
 
   const {
-    roofPenCost = DEFAULT_ROOF_PEN_COST,
-    wallPenCost = DEFAULT_WALL_PEN_COST,
-    miscPct     = DEFAULT_MISC_PCT,
-    laborRate   = DEFAULT_LABOR_RATE,
+    roofPenCost         = DEFAULT_ROOF_PEN_COST,
+    wallPenCost         = DEFAULT_WALL_PEN_COST,
+    miscPct             = DEFAULT_MISC_PCT,
+    laborRate           = DEFAULT_LABOR_RATE,
+    laborHoursOverrides = null,
   } = settings;
 
   const type = getFanType(fanType);
@@ -150,7 +179,8 @@ export function calculateFanRow(row, settings = {}) {
 
   // ── O: Labor (Table) = hours × laborRate ──────────────────────────────────
   // =IFERROR(INDEX(..., MATCH(fanType,...), MATCH(size,...)) * $AC$3, "")
-  const tableHours = type.hours?.[sizeCategory] ?? null;
+  // laborHoursOverrides lets settings panel override any cell in the table.
+  const tableHours = resolveHours(fanType, sizeCategory, laborHoursOverrides);
   const O = tableHours !== null ? tableHours * laborRate : 0;
 
   // ── N: Labor (Input) — manual dollar override ──────────────────────────────
@@ -198,6 +228,7 @@ export function calculateFanBatch(rows, settings = {}) {
   const totalLaborTable   = sum('laborTable');
   const totalLaborFinal   = sum('laborFinal');
   const totalMatPlusLab   = sum('matPlusLab');
+  const totalLaborHours   = sum('laborHours');
 
   return {
     rows: results,
@@ -207,10 +238,11 @@ export function calculateFanBatch(rows, settings = {}) {
       totalPenetrations:Math.round(totalPenetrations * 100) / 100,
       totalMiscParts:   Math.round(totalMiscParts   * 100) / 100,
       totalMaterial:    Math.round(totalMaterial    * 100) / 100,
-      totalLaborInput:  roundTo10(totalLaborInput),   // ROUND(..., -1)
+      totalLaborInput:  roundTo10(totalLaborInput),
       totalLaborTable:  Math.round(totalLaborTable   * 100) / 100,
       totalLaborFinal:  Math.round(totalLaborFinal   * 100) / 100,
-      totalMatPlusLab:  roundTo10(totalMatPlusLab),   // ROUND(..., -1)
+      totalMatPlusLab:  roundTo10(totalMatPlusLab),
+      totalLaborHours:  Math.round(totalLaborHours  * 10)  / 10,
     },
   };
 }

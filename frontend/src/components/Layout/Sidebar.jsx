@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { NavLink } from 'react-router-dom';
-import { GripVertical, RotateCcw, X, Wrench } from 'lucide-react';
+import { NavLink, useNavigate } from 'react-router-dom';
+import { GripVertical, RotateCcw, X, Wrench, FolderOpen, ChevronRight } from 'lucide-react';
 import { NAV_SECTIONS, ROUTE_PATHS } from '@config/navigation';
 import { useAuth } from '@contexts/AuthContext';
+import { useActiveProject } from '@contexts/ActiveProjectContext';
 
 const ORDER_STORAGE_KEY = 'sidebar_estimating_order';
 const estimatingSection = NAV_SECTIONS.find((section) => section.title === 'Estimating');
@@ -27,6 +28,8 @@ function loadOrder() {
 export default function Sidebar({ open, onClose }) {
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
+  const { activeProject, clearActiveProject } = useActiveProject();
+  const navigate = useNavigate();
   const [estimatingOrder, setEstimatingOrder] = useState(loadOrder);
   const [draggedRoute, setDraggedRoute] = useState(null);
 
@@ -76,8 +79,8 @@ export default function Sidebar({ open, onClose }) {
               <Wrench size={16} className="text-white" />
             </div>
             <div>
-              <div className="font-bold text-sm leading-tight">HVAC Estimator</div>
-              <div className="text-xs text-gray-400">AI-Powered</div>
+              <div className="font-bold text-sm leading-tight">Mercury Control</div>
+              <div className="text-xs text-gray-400">Estimation Tool</div>
             </div>
           </div>
           <button
@@ -111,13 +114,49 @@ export default function Sidebar({ open, onClose }) {
                 )}
               </div>
               {section.title === 'Estimating'
-                ? estimatingOrder.map((to, index) => {
+                ? <>
+                    {/* Active project chip — shown when a project is selected */}
+                    {activeProject ? (
+                      <div className="mx-1 mb-2 px-3 py-2 bg-blue-600/20 border border-blue-500/30 rounded-lg">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <FolderOpen size={13} className="text-blue-400 flex-shrink-0" />
+                          <button
+                            onClick={() => navigate(`/projects/${activeProject.id}`)}
+                            className="flex-1 text-left text-xs font-semibold text-blue-300 truncate hover:text-white transition-colors"
+                            title={activeProject.name}
+                          >
+                            {activeProject.name}
+                          </button>
+                          <button
+                            onClick={clearActiveProject}
+                            className="text-blue-500 hover:text-white flex-shrink-0 transition-colors"
+                            title="Deselect project"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                        <div className="text-[10px] text-blue-500 mt-0.5 pl-5">Active project</div>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => navigate('/projects')}
+                        className="mx-1 mb-2 flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-gray-700 text-gray-500 hover:border-gray-500 hover:text-gray-300 transition-colors text-xs w-[calc(100%-8px)]"
+                      >
+                        <FolderOpen size={13} />
+                        <span className="flex-1 text-left">Select a project</span>
+                        <ChevronRight size={12} />
+                      </button>
+                    )}
+
+                    {estimatingOrder.map((to) => {
                     const item = estimatingItemByRoute.get(to);
                     if (!item) return null;
                     // Respect adminOnly flag — same rule as non-Estimating sections
                     if (item.adminOnly && !isAdmin) return null;
                     const { label, icon: Icon, ai } = item;
                     const isDragging = draggedRoute === to;
+                    // Append ?projectId= when a project is active
+                    const linkTo = activeProject ? `${to}?projectId=${activeProject.id}` : to;
                     return (
                       <div
                         key={to}
@@ -141,8 +180,9 @@ export default function Sidebar({ open, onClose }) {
                           <GripVertical size={14} />
                         </div>
                         <NavLink
-                          to={to}
+                          to={linkTo}
                           end={to === ROUTE_PATHS.DASHBOARD}
+                          // isActive matches on the pathname only, ignoring ?projectId
                           className={({ isActive }) =>
                             `flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                               isActive
@@ -161,11 +201,17 @@ export default function Sidebar({ open, onClose }) {
                         </NavLink>
                       </div>
                     );
-                  })
-                : visibleItems.map(({ to, label, icon: Icon, ai }) => (
+                  })}</>
+
+                : visibleItems.map(({ to, label, icon: Icon, ai }) => {
+                    // Append ?projectId= for routes that work in project context
+                    const projectAwareTo = activeProject && to !== '/projects' && !to.startsWith('/admin')
+                      ? `${to}?projectId=${activeProject.id}`
+                      : to;
+                    return (
                     <NavLink
                       key={to}
-                      to={to}
+                      to={projectAwareTo}
                       end={to === ROUTE_PATHS.DASHBOARD || to === '/projects'}
                       className={({ isActive }) =>
                         `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
@@ -183,7 +229,8 @@ export default function Sidebar({ open, onClose }) {
                         </span>
                       )}
                     </NavLink>
-                  ))}
+                    );
+                  })}
             </div>
             );
           })}

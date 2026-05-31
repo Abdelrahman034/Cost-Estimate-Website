@@ -33,6 +33,7 @@ async function listEstimates({ projectId, companyId }) {
       totalLabor:    true,
       totalHours:    true,
       totalCost:     true,
+      totalsJson:    true,
       settings:      true,
       createdAt:     true,
       updatedAt:     true,

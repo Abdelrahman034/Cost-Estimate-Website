@@ -1,5 +1,5 @@
 import React from 'react';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Copy } from 'lucide-react';
 import { DIFFUSER_TYPES } from '@utils/diffuserCalculations';
 
 const SOURCE_BADGE = {
@@ -10,17 +10,29 @@ const SOURCE_BADGE = {
   none:   { label: '',       cls: '' },
 };
 
-export default function DiffuserRow({ row, result, index, onChange, onRemove }) {
+const dash = <span className="text-gray-300">—</span>;
+
+export default function DiffuserRow({ row, result, index, onChange, onRemove, onDuplicate }) {
   const bg = index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50';
-  // Only treat as a real result when the row has a type and at least 1 unit calculated
   const hasResult = !!result && result.qty > 0 && !!result.typeId;
   const badge = SOURCE_BADGE[result?.priceSource ?? 'none'] ?? SOURCE_BADGE.none;
 
   return (
     <tr className={`${bg} border-b border-gray-100 hover:bg-blue-50/30 transition-colors`}>
 
-      {/* Type */}
-      <td className="px-3 py-2 w-56">
+      {/* Tag / ID — Excel col C */}
+      <td className="px-3 py-2 w-20">
+        <input
+          type="text"
+          placeholder="e.g. E1"
+          className="input text-xs"
+          value={row.tag ?? ''}
+          onChange={(e) => onChange(row.id, 'tag', e.target.value)}
+        />
+      </td>
+
+      {/* Type — Excel col D */}
+      <td className="px-3 py-2 w-52">
         <select
           className="input text-xs"
           value={row.typeId}
@@ -33,7 +45,7 @@ export default function DiffuserRow({ row, result, index, onChange, onRemove }) 
         </select>
       </td>
 
-      {/* Qty */}
+      {/* Qty — Excel col K */}
       <td className="px-3 py-2 w-20">
         <input
           type="number"
@@ -45,11 +57,11 @@ export default function DiffuserRow({ row, result, index, onChange, onRemove }) 
         />
       </td>
 
-      {/* Sheetrock */}
+      {/* Sheetrock — Excel col E ("x" = adds frame charge col H) */}
       <td className="px-3 py-2 text-center w-20">
         <button
           type="button"
-          title="Sheetrock ceiling — adds $25 frame"
+          title="Sheetrock ceiling — adds frame charge (col H)"
           onClick={() => onChange(row.id, 'sheetrock', !row.sheetrock)}
           className={`w-16 rounded-lg border py-1.5 text-xs font-semibold transition-all ${
             row.sheetrock
@@ -61,7 +73,7 @@ export default function DiffuserRow({ row, result, index, onChange, onRemove }) 
         </button>
       </td>
 
-      {/* Quoted Price (custom per-row override) */}
+      {/* Quoted Price — Excel col F */}
       <td className="px-3 py-2 w-32">
         <div className="relative">
           <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
@@ -75,71 +87,81 @@ export default function DiffuserRow({ row, result, index, onChange, onRemove }) 
             onChange={(e) => onChange(row.id, 'quotedPrice', parseFloat(e.target.value) || 0)}
           />
         </div>
-        {hasResult && (
+        {hasResult && badge.label && (
           <span className={`inline-block mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold ${badge.cls}`}>
             {badge.label}
           </span>
         )}
       </td>
 
-      {/* Unit Price (effective) */}
+      {/* Unit Price — Excel col G */}
       <td className="px-3 py-2 text-xs font-mono text-gray-700 w-24">
-        {hasResult ? (
-          <span className="font-semibold">${result.effectiveUnitPrice.toLocaleString()}</span>
-        ) : <span className="text-gray-300">—</span>}
+        {hasResult ? <span className="font-semibold">${result.effectiveUnitPrice.toLocaleString()}</span> : dash}
       </td>
 
-      {/* Frame */}
-      <td className="px-3 py-2 text-xs font-mono text-gray-700 w-20">
-        {hasResult ? (
-          result.framePrice > 0
+      {/* Frame — Excel col H */}
+      <td className="px-3 py-2 text-xs font-mono w-20">
+        {hasResult
+          ? result.framePrice > 0
             ? <span className="text-amber-600 font-semibold">${result.framePrice}</span>
-            : <span className="text-gray-300">—</span>
-        ) : <span className="text-gray-300">—</span>}
+            : dash
+          : dash}
       </td>
 
-      {/* Misc Materials */}
+      {/* Misc Materials — Excel col I */}
+      <td className="px-3 py-2 text-xs font-mono text-gray-500 w-24">
+        {hasResult ? <span>${result.miscMat.toLocaleString()}</span> : dash}
+      </td>
+
+      {/* Labor / unit — Excel col J */}
       <td className="px-3 py-2 text-xs font-mono text-gray-700 w-24">
-        {hasResult ? (
-          <span className="text-gray-500">${result.miscMat.toLocaleString()}</span>
-        ) : <span className="text-gray-300">—</span>}
+        {hasResult ? <span>${result.laborPerUnit.toLocaleString()}</span> : dash}
       </td>
 
-      {/* Labor / unit */}
-      <td className="px-3 py-2 text-xs font-mono text-gray-700 w-24">
-        {hasResult ? (
-          <span>${result.laborPerUnit.toLocaleString()}</span>
-        ) : <span className="text-gray-300">—</span>}
-      </td>
-
-      {/* Total Material */}
+      {/* Total Material — Excel col L */}
       <td className="px-3 py-2 text-xs font-mono w-28">
-        {hasResult ? (
-          <span className="text-green-700 font-semibold">${result.totalMat.toLocaleString()}</span>
-        ) : <span className="text-gray-300">—</span>}
+        {hasResult
+          ? <span className="text-green-700 font-semibold">${result.totalMat.toLocaleString()}</span>
+          : dash}
       </td>
 
-      {/* Total Labor */}
+      {/* Total Labor — Excel col M */}
       <td className="px-3 py-2 text-xs font-mono w-24">
-        {hasResult ? (
-          <span className="text-blue-700 font-semibold">${result.totalLabor.toLocaleString()}</span>
-        ) : <span className="text-gray-300">—</span>}
+        {hasResult
+          ? <span className="text-blue-700 font-semibold">${result.totalLabor.toLocaleString()}</span>
+          : dash}
       </td>
 
-      {/* Total */}
+      {/* Total — Excel col N */}
       <td className="px-3 py-2 text-xs font-mono w-28">
-        {hasResult ? (
-          <span className="bg-gray-900 text-white px-2 py-1 rounded text-xs font-bold">
-            ${result.total.toLocaleString()}
-          </span>
-        ) : <span className="text-gray-300">—</span>}
+        {hasResult
+          ? <span className="bg-gray-900 text-white px-2 py-1 rounded text-xs font-bold">${result.total.toLocaleString()}</span>
+          : dash}
       </td>
 
-      {/* Delete */}
-      <td className="px-3 py-2 w-8">
-        <button onClick={onRemove} className="text-gray-300 hover:text-red-500 transition-colors p-1">
-          <Trash2 size={14} />
-        </button>
+      {/* Notes */}
+      <td className="px-3 py-2">
+        <input
+          type="text"
+          placeholder="notes…"
+          className="input text-xs min-w-[100px]"
+          value={row.notes ?? ''}
+          onChange={(e) => onChange(row.id, 'notes', e.target.value)}
+        />
+      </td>
+
+      {/* Actions */}
+      <td className="px-2 py-2 w-16">
+        <div className="flex items-center gap-1">
+          <button onClick={onDuplicate} title="Duplicate row"
+            className="text-gray-300 hover:text-blue-500 transition-colors p-1">
+            <Copy size={13} />
+          </button>
+          <button onClick={onRemove} title="Remove row"
+            className="text-gray-300 hover:text-red-500 transition-colors p-1">
+            <Trash2 size={13} />
+          </button>
+        </div>
       </td>
     </tr>
   );

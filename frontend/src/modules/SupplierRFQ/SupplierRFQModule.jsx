@@ -7,33 +7,47 @@
  *   3. Quotes     — Enter supplier quote responses per line item
  *   4. Compare    — Side-by-side price comparison with best-price highlighting
  *
- * State: localStorage (keys: rfq_suppliers, rfq_rfqs, rfq_quotes)
- * API_TODO: Replace localStorage reads/writes with suppliersApi + rfqApi calls
+ * State: PostgreSQL via suppliersApi + rfqApi
  */
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
 import {
   Users, ClipboardList, MessageSquare, BarChart2,
   Plus, Trash2, Edit2, Check, X, Mail, ChevronDown, ChevronUp, Award, Save,
+  Loader2,
 } from 'lucide-react';
+import { suppliersApi, rfqApi } from '@services/api';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const uid = (p = 'id') => `${p}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 const fmt = (n) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n || 0);
 
-function useLocalList(key, initial = []) {
-  const [list, _set] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(key) || 'null') ?? initial; }
-    catch { return initial; }
-  });
-  const set = useCallback((updater) => {
-    _set(prev => {
-      const next = typeof updater === 'function' ? updater(prev) : updater;
-      localStorage.setItem(key, JSON.stringify(next));
-      return next;
-    });
-  }, [key]);
-  return [list, set];
+/** Normalize a DB RFQ row → frontend shape */
+function normalizeRfq(r) {
+  return {
+    id:           r.id,
+    title:        r.title ?? '',
+    projectName:  r.projectName ?? '',
+    items:        Array.isArray(r.itemsJson) ? r.itemsJson : (r.itemsJson ? JSON.parse(r.itemsJson) : []),
+    supplierIds:  Array.isArray(r.suppliers)
+                    ? r.suppliers.map(s => s.supplier?.id ?? s.supplierId ?? s.id)
+                    : [],
+    status:       (r.status ?? 'DRAFT').toLowerCase(),
+    createdAt:    r.createdAt ?? new Date().toISOString(),
+  };
+}
+
+/** Normalize a DB Quote row → frontend shape */
+function normalizeQuote(q) {
+  return {
+    id:         q.id,
+    rfqId:      q.rfqId,
+    supplierId: q.supplierId,
+    lines:      Array.isArray(q.linesJson) ? q.linesJson : (q.linesJson ? JSON.parse(q.linesJson) : []),
+    subtotal:   parseFloat(q.subtotal ?? 0),
+    notes:      q.notes ?? '',
+    status:     (q.status ?? 'PENDING').toLowerCase(),
+  };
 }
 
 const UNIT_OPTIONS = ['EA', 'LS', 'LF', 'SQ FT', 'TON', 'KW', 'SET'];
@@ -46,32 +60,44 @@ const STATUS_COLORS = {
 };
 
 // ─── Suppliers Tab ────────────────────────────────────────────────────────────
-function SuppliersTab({ suppliers, setSuppliers }) {
+function SuppliersTab({ suppliers, loading, onAdd, onUpdate, onDelete }) {
   const blank = { name: '', company: '', email: '', phone: '', notes: '' };
   const [form, setForm] = useState(blank);
   const [editId, setEditId] = useState(null);
   const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const openNew = () => { setForm(blank); setEditId(null); setShowForm(true); };
   const openEdit = (sup) => { setForm({ ...sup }); setEditId(sup.id); setShowForm(true); };
   const cancel = () => { setShowForm(false); setEditId(null); setForm(blank); };
 
-  const save = () => {
+  const save = async () => {
     if (!form.name.trim()) { toast.error('Name is required'); return; }
-    if (editId) {
-      setSuppliers(prev => prev.map(s => s.id === editId ? { ...s, ...form } : s));
-      toast.success('Supplier updated');
-    } else {
-      setSuppliers(prev => [...prev, { id: uid('sup'), ...form }]);
-      toast.success('Supplier added');
+    setSaving(true);
+    try {
+      if (editId) {
+        await onUpdate(editId, form);
+        toast.success('Supplier updated');
+      } else {
+        await onAdd(form);
+        toast.success('Supplier added');
+      }
+      cancel();
+    } catch {
+      toast.error('Failed to save supplier');
+    } finally {
+      setSaving(false);
     }
-    cancel();
   };
 
-  const remove = (id) => {
+  const remove = async (id) => {
     if (!confirm('Remove this supplier?')) return;
-    setSuppliers(prev => prev.filter(s => s.id !== id));
-    toast.success('Supplier removed');
+    try {
+      await onDelete(id);
+      toast.success('Supplier removed');
+    } catch {
+      toast.error('Failed to remove supplier');
+    }
   };
 
   const inp = 'w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500';
@@ -112,19 +138,29 @@ function SuppliersTab({ suppliers, setSuppliers }) {
             </div>
           </div>
           <div className="flex gap-2">
-            <button onClick={save} className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium"><Check size={14} /> Save</button>
+            <button onClick={save} disabled={saving} className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium disabled:opacity-50">
+              {saving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Save
+            </button>
             <button onClick={cancel} className="flex items-center gap-1.5 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-sm"><X size={14} /> Cancel</button>
           </div>
         </div>
       )}
 
-      {/* Supplier cards */}
-      {suppliers.length === 0 && !showForm && (
+      {/* Loading state */}
+      {loading && (
+        <div className="flex items-center justify-center py-12 text-gray-500">
+          <Loader2 size={24} className="animate-spin mr-2" /> Loading suppliers…
+        </div>
+      )}
+
+      {/* Empty state */}
+      {!loading && suppliers.length === 0 && !showForm && (
         <div className="text-center py-12 text-gray-500">
           <Users size={40} className="mx-auto mb-3 opacity-30" />
           <p>No suppliers yet. Add your first supplier to get started.</p>
         </div>
       )}
+
       <div className="space-y-2">
         {suppliers.map(sup => (
           <div key={sup.id} className="flex items-center gap-4 bg-gray-800/50 border border-gray-700/50 rounded-xl px-5 py-4">
@@ -151,14 +187,15 @@ function SuppliersTab({ suppliers, setSuppliers }) {
 }
 
 // ─── RFQ Builder Tab ──────────────────────────────────────────────────────────
-function RFQBuilderTab({ suppliers, rfqs, setRfqs, quotes, setQuotes }) {
+function RFQBuilderTab({ suppliers, rfqs, quotes, loading, onSaveRfq, onDeleteRfq }) {
   const blankRfq = () => ({
-    id: uid('rfq'), title: '', projectName: '',
+    title: '', projectName: '',
     items: [{ id: uid('itm'), description: '', qty: 1, unit: 'EA', targetPrice: '' }],
-    supplierIds: [], status: 'draft', createdAt: new Date().toISOString(),
+    supplierIds: [], status: 'draft',
   });
   const [form, setForm] = useState(blankRfq);
   const [editingId, setEditingId] = useState(null);
+  const [saving, setSaving] = useState(false);
 
   const loadForEdit = (rfq) => { setForm({ ...rfq }); setEditingId(rfq.id); };
   const newRfq = () => { setForm(blankRfq()); setEditingId(null); };
@@ -174,32 +211,30 @@ function RFQBuilderTab({ suppliers, rfqs, setRfqs, quotes, setQuotes }) {
     supplierIds: f.supplierIds.includes(supId) ? f.supplierIds.filter(s => s !== supId) : [...f.supplierIds, supId],
   }));
 
-  const saveRfq = () => {
+  const saveRfq = async () => {
     if (!form.title.trim()) { toast.error('RFQ title is required'); return; }
     if (form.items.every(i => !i.description.trim())) { toast.error('Add at least one line item'); return; }
-    if (editingId) {
-      setRfqs(prev => prev.map(r => r.id === editingId ? form : r));
-      toast.success('RFQ updated');
-    } else {
-      setRfqs(prev => [...prev, form]);
-      // Init blank quotes for assigned suppliers
-      const newQuotes = form.supplierIds.map(sid => ({
-        id: uid('qte'), rfqId: form.id, supplierId: sid,
-        lines: form.items.map(i => ({ itemId: i.id, unitCost: '', totalCost: 0 })),
-        subtotal: 0, notes: '', status: 'pending',
-      }));
-      setQuotes(prev => [...prev, ...newQuotes]);
-      toast.success('RFQ saved');
+    setSaving(true);
+    try {
+      await onSaveRfq(editingId, form);
+      toast.success(editingId ? 'RFQ updated' : 'RFQ saved');
+      setEditingId(null);
+      setForm(blankRfq());
+    } catch {
+      toast.error('Failed to save RFQ');
+    } finally {
+      setSaving(false);
     }
-    setEditingId(null);
-    setForm(blankRfq());
   };
 
-  const deleteRfq = (id) => {
+  const deleteRfq = async (id) => {
     if (!confirm('Delete this RFQ and all associated quotes?')) return;
-    setRfqs(prev => prev.filter(r => r.id !== id));
-    setQuotes(prev => prev.filter(q => q.rfqId !== id));
-    toast.success('RFQ deleted');
+    try {
+      await onDeleteRfq(id);
+      toast.success('RFQ deleted');
+    } catch {
+      toast.error('Failed to delete RFQ');
+    }
   };
 
   const inp = 'bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500';
@@ -275,8 +310,9 @@ function RFQBuilderTab({ suppliers, rfqs, setRfqs, quotes, setQuotes }) {
         </div>
 
         <div className="flex gap-2">
-          <button onClick={saveRfq} className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium">
-            <Save size={14} /> {editingId ? 'Update RFQ' : 'Save RFQ'}
+          <button onClick={saveRfq} disabled={saving} className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium disabled:opacity-50">
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+            {editingId ? 'Update RFQ' : 'Save RFQ'}
           </button>
           {editingId && (
             <button onClick={newRfq} className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-sm">Cancel Edit</button>
@@ -284,8 +320,15 @@ function RFQBuilderTab({ suppliers, rfqs, setRfqs, quotes, setQuotes }) {
         </div>
       </div>
 
+      {/* Loading state */}
+      {loading && (
+        <div className="flex items-center justify-center py-8 text-gray-500">
+          <Loader2 size={20} className="animate-spin mr-2" /> Loading RFQs…
+        </div>
+      )}
+
       {/* Saved RFQs */}
-      {rfqs.length > 0 && (
+      {!loading && rfqs.length > 0 && (
         <div>
           <h3 className="text-gray-300 font-medium mb-3">Saved RFQs</h3>
           <div className="space-y-2">
@@ -318,7 +361,7 @@ function RFQBuilderTab({ suppliers, rfqs, setRfqs, quotes, setQuotes }) {
 }
 
 // ─── Quotes Tab ────────────────────────────────────────────────────────────────
-function QuotesTab({ rfqs, suppliers, quotes, setQuotes }) {
+function QuotesTab({ rfqs, suppliers, quotes, onSaveQuote }) {
   const [selectedRfqId, setSelectedRfqId] = useState('');
   const rfq = rfqs.find(r => r.id === selectedRfqId);
 
@@ -333,34 +376,17 @@ function QuotesTab({ rfqs, suppliers, quotes, setQuotes }) {
     const item = rfq?.items.find(i => i.id === itemId);
     const qty = item?.qty || 1;
     const total = (parseFloat(unitCost) || 0) * qty;
-    setQuotes(prev => {
-      const existing = prev.find(q => q.rfqId === selectedRfqId && q.supplierId === supId);
-      if (existing) {
-        return prev.map(q => {
-          if (q.rfqId !== selectedRfqId || q.supplierId !== supId) return q;
-          const lines = q.lines.map(l => l.itemId === itemId ? { ...l, unitCost, totalCost: total } : l);
-          const subtotal = lines.reduce((s, l) => s + (l.totalCost || 0), 0);
-          return { ...q, lines, subtotal };
-        });
-      } else {
-        const q = getQuote(selectedRfqId, supId);
-        const lines = q.lines.map(l => l.itemId === itemId ? { ...l, unitCost, totalCost: total } : l);
-        const subtotal = lines.reduce((s, l) => s + (l.totalCost || 0), 0);
-        return [...prev, { ...q, id: uid('qte'), lines, subtotal }];
-      }
-    });
+    const existing = quotes.find(q => q.rfqId === selectedRfqId && q.supplierId === supId);
+    const base = existing || getQuote(selectedRfqId, supId);
+    const lines = (base.lines || []).map(l => l.itemId === itemId ? { ...l, unitCost, totalCost: total } : l);
+    const subtotal = lines.reduce((s, l) => s + (l.totalCost || 0), 0);
+    onSaveQuote(selectedRfqId, supId, { ...base, lines, subtotal });
   };
 
   const updateQuoteField = (supId, field, val) => {
-    setQuotes(prev => {
-      const existing = prev.find(q => q.rfqId === selectedRfqId && q.supplierId === supId);
-      if (existing) {
-        return prev.map(q => q.rfqId === selectedRfqId && q.supplierId === supId ? { ...q, [field]: val } : q);
-      } else {
-        const q = getQuote(selectedRfqId, supId);
-        return [...prev, { ...q, id: uid('qte'), [field]: val }];
-      }
-    });
+    const existing = quotes.find(q => q.rfqId === selectedRfqId && q.supplierId === supId);
+    const base = existing || getQuote(selectedRfqId, supId);
+    onSaveQuote(selectedRfqId, supId, { ...base, [field]: val });
   };
 
   const inp = 'bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 w-full';
@@ -470,7 +496,6 @@ function CompareTab({ rfqs, suppliers, quotes }) {
     [rfq, suppliers]
   );
 
-  // Find lowest unit price per item across suppliers
   const lowestByItem = useMemo(() => {
     if (!rfq) return {};
     const result = {};
@@ -614,9 +639,126 @@ const TABS = [
 
 export default function SupplierRFQModule() {
   const [activeTab, setActiveTab] = useState('suppliers');
-  const [suppliers, setSuppliers] = useLocalList('rfq_suppliers');
-  const [rfqs, setRfqs]           = useLocalList('rfq_rfqs');
-  const [quotes, setQuotes]       = useLocalList('rfq_quotes');
+
+  // ── State ──────────────────────────────────────────────────────────────────
+  const [suppliers, setSuppliers] = useState([]);
+  const [rfqs,      setRfqs]      = useState([]);
+  const [quotes,    setQuotes]    = useState([]);
+  const [loadingSuppliers, setLoadingSuppliers] = useState(true);
+  const [loadingRfqs,      setLoadingRfqs]      = useState(true);
+
+  // Debounced quote-save timers keyed by `${rfqId}-${supplierId}`
+  const saveTimers = useRef({});
+
+  // ── Initial load ───────────────────────────────────────────────────────────
+  useEffect(() => {
+    suppliersApi.getAll()
+      .then(res => setSuppliers(res.data ?? []))
+      .catch(() => toast.error('Could not load suppliers'))
+      .finally(() => setLoadingSuppliers(false));
+
+    rfqApi.getAll()
+      .then(res => {
+        const normalized = (res.data ?? []).map(normalizeRfq);
+        setRfqs(normalized);
+        return normalized;
+      })
+      .then(async (normalized) => {
+        // Load quotes for every RFQ in parallel
+        const results = await Promise.allSettled(
+          normalized.map(rfq => rfqApi.getQuotes(rfq.id).then(r => r.data ?? []))
+        );
+        const allQuotes = results.flatMap(r => r.status === 'fulfilled' ? r.value.map(normalizeQuote) : []);
+        setQuotes(allQuotes);
+      })
+      .catch(() => toast.error('Could not load RFQs'))
+      .finally(() => setLoadingRfqs(false));
+  }, []);
+
+  // ── Supplier handlers ──────────────────────────────────────────────────────
+  const handleAddSupplier = useCallback(async (data) => {
+    const res = await suppliersApi.create(data);
+    setSuppliers(prev => [...prev, res.data]);
+  }, []);
+
+  const handleUpdateSupplier = useCallback(async (id, data) => {
+    const res = await suppliersApi.update(id, data);
+    setSuppliers(prev => prev.map(s => s.id === id ? res.data : s));
+  }, []);
+
+  const handleDeleteSupplier = useCallback(async (id) => {
+    await suppliersApi.delete(id);
+    setSuppliers(prev => prev.filter(s => s.id !== id));
+  }, []);
+
+  // ── RFQ handlers ───────────────────────────────────────────────────────────
+  const handleSaveRfq = useCallback(async (editingId, form) => {
+    const payload = {
+      title:        form.title,
+      projectName:  form.projectName,
+      itemsJson:    form.items,
+      supplierIds:  form.supplierIds,
+      status:       (form.status ?? 'draft').toUpperCase(),
+    };
+
+    if (editingId) {
+      const res = await rfqApi.update(editingId, payload);
+      setRfqs(prev => prev.map(r => r.id === editingId ? normalizeRfq(res.data) : r));
+    } else {
+      const res = await rfqApi.create(payload);
+      const newRfq = normalizeRfq(res.data);
+      setRfqs(prev => [...prev, newRfq]);
+
+      // Init blank quote placeholders for assigned suppliers (optimistic)
+      const blankQuotes = form.supplierIds.map(sid => ({
+        id: null, rfqId: newRfq.id, supplierId: sid,
+        lines: form.items.map(i => ({ itemId: i.id, unitCost: '', totalCost: 0 })),
+        subtotal: 0, notes: '', status: 'pending',
+      }));
+      setQuotes(prev => [...prev, ...blankQuotes]);
+    }
+  }, []);
+
+  const handleDeleteRfq = useCallback(async (id) => {
+    await rfqApi.delete(id);
+    setRfqs(prev => prev.filter(r => r.id !== id));
+    setQuotes(prev => prev.filter(q => q.rfqId !== id));
+  }, []);
+
+  // ── Quote handler (optimistic + debounced persist) ──────────────────────────
+  const handleSaveQuote = useCallback((rfqId, supplierId, updatedQuote) => {
+    // Apply optimistic update immediately
+    setQuotes(prev => {
+      const exists = prev.some(q => q.rfqId === rfqId && q.supplierId === supplierId);
+      if (exists) {
+        return prev.map(q => q.rfqId === rfqId && q.supplierId === supplierId ? updatedQuote : q);
+      }
+      return [...prev, updatedQuote];
+    });
+
+    // Debounce the API call
+    const key = `${rfqId}-${supplierId}`;
+    clearTimeout(saveTimers.current[key]);
+    saveTimers.current[key] = setTimeout(async () => {
+      try {
+        const payload = {
+          linesJson: updatedQuote.lines,
+          subtotal:  updatedQuote.subtotal,
+          notes:     updatedQuote.notes,
+          status:    (updatedQuote.status ?? 'pending').toUpperCase(),
+        };
+        const res = await rfqApi.upsertQuote(rfqId, supplierId, payload);
+        // Update with canonical DB id if this was a new quote
+        setQuotes(prev => prev.map(q =>
+          q.rfqId === rfqId && q.supplierId === supplierId
+            ? { ...normalizeQuote(res.data), lines: updatedQuote.lines }
+            : q
+        ));
+      } catch {
+        // Silent — user can still see their data; will retry on next keystroke
+      }
+    }, 800);
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -652,16 +794,31 @@ export default function SupplierRFQModule() {
       {/* Tab content */}
       <div>
         {activeTab === 'suppliers' && (
-          <SuppliersTab suppliers={suppliers} setSuppliers={setSuppliers} />
+          <SuppliersTab
+            suppliers={suppliers}
+            loading={loadingSuppliers}
+            onAdd={handleAddSupplier}
+            onUpdate={handleUpdateSupplier}
+            onDelete={handleDeleteSupplier}
+          />
         )}
         {activeTab === 'rfq' && (
           <RFQBuilderTab
-            suppliers={suppliers} rfqs={rfqs} setRfqs={setRfqs}
-            quotes={quotes} setQuotes={setQuotes}
+            suppliers={suppliers}
+            rfqs={rfqs}
+            quotes={quotes}
+            loading={loadingRfqs}
+            onSaveRfq={handleSaveRfq}
+            onDeleteRfq={handleDeleteRfq}
           />
         )}
         {activeTab === 'quotes' && (
-          <QuotesTab rfqs={rfqs} suppliers={suppliers} quotes={quotes} setQuotes={setQuotes} />
+          <QuotesTab
+            rfqs={rfqs}
+            suppliers={suppliers}
+            quotes={quotes}
+            onSaveQuote={handleSaveQuote}
+          />
         )}
         {activeTab === 'compare' && (
           <CompareTab rfqs={rfqs} suppliers={suppliers} quotes={quotes} />

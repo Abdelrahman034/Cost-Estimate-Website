@@ -36,6 +36,12 @@ enum ProjectStatus {
   ARCHIVED
 }
 
+enum ProjectType {
+  COMMERCIAL
+  PUBLIC
+  MULTI_FAMILY
+}
+
 enum ModuleType {
   UNIT_SCHEDULE
   METAL_DUCT
@@ -45,6 +51,7 @@ enum ModuleType {
   FAN_SCHEDULE
   LOUVERS_DAMPERS
   DIFFUSER_SCHEDULE
+  GENERAL_ITEMS
   SUMMARY
 }
 
@@ -165,8 +172,13 @@ model Project {
   owner       String?       // Property owner name
   gc          String?       // General contractor
   bidDate     DateTime?     @map("bid_date")
-  status      ProjectStatus @default(ACTIVE)
-  notes       String?
+  status           ProjectStatus @default(ACTIVE)
+  projectType      ProjectType?  @map("project_type")
+  bidValue         Float?        @map("bid_value")
+  area             Float?        // sq ft
+  submissionStatus String?       @map("submission_status") // e.g. Pending, Submitted, Awarded
+  marginPct        Decimal?      @map("margin_pct") @db.Decimal(5, 4) // e.g. 0.15 = 15%
+  notes            String?
 
   // Company info snapshot at time of bid
   companyName    String? @map("company_name")

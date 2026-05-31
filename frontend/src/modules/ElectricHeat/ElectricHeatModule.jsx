@@ -91,27 +91,17 @@ export default function ElectricHeatModule() {
     }
   }, [loadEstimate, projectId]);
 
-  // ── Auto-push totals to Dashboard ─────────────────────────────────────────
+  // ── Auto-calculate + save totals whenever rows or settings change ──────────
   useEffect(() => {
-    if (!results) return;
-    const { totals } = results;
-    saveModuleTotals('elec_heat', {
-      totalMaterial: totals.totalMaterial,
-      totalLabor:    totals.totalLabor,
-      totalCost:     totals.totalMatPlusLab,
-    });
-  }, [results]);
-
-  // ── Calculate ──────────────────────────────────────────────────────────────
-  const calculate = useCallback(() => {
     const filled = rows.filter((r) => parseFloat(r.unitCost) > 0 || parseFloat(r.labor) > 0);
-    if (filled.length === 0) {
-      toast.error('Enter at least one unit cost or labor value');
-      return;
-    }
+    if (filled.length === 0) { setResults(null); return; }
     const batch = calculateElectricHeatBatch(rows, settings);
     setResults(batch);
-    toast.success(`Calculated ${filled.length} heater(s)`);
+    saveModuleTotals('elec_heat', {
+      totalMaterial: batch.totals.totalMaterial,
+      totalLabor:    batch.totals.totalLabor,
+      totalCost:     batch.totals.totalMatPlusLab,
+    });
     if (projectId) {
       saveEstimate({
         rowsJson:      rows,
@@ -120,7 +110,17 @@ export default function ElectricHeatModule() {
         totalCost:     batch.totals.totalMatPlusLab,
       });
     }
-  }, [rows, settings, projectId, saveEstimate]);
+  }, [rows, settings, projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Manual Calculate (kept for explicit user action / toast feedback) ───────
+  const calculate = useCallback(() => {
+    const filled = rows.filter((r) => parseFloat(r.unitCost) > 0 || parseFloat(r.labor) > 0);
+    if (filled.length === 0) {
+      toast.error('Enter at least one unit cost or labor value');
+      return;
+    }
+    toast.success(`Calculated ${filled.length} heater(s)`);
+  }, [rows]);
 
   // ── Row handlers ───────────────────────────────────────────────────────────
   const handleRowChange = useCallback((id, field, value) => {

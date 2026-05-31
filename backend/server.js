@@ -17,12 +17,9 @@ const calculateRoutes      = require('./features/calculate/calculateRoutes');
 const copperRoutes         = require('./features/copper/copperRoutes');
 const copperDataLoader     = require('./features/copper/copperDataLoader');
 
-// ── Legacy route modules (prices, drawings, emails, proposals) ────────────────
+// ── Legacy route modules ──────────────────────────────────────────────────────
 const { requireAuth }      = require('./middleware/auth');
 const pricesLegacyRoutes   = require('./routes/prices');
-const drawingsRoutes        = require('./routes/drawings');
-const emailsRoutes          = require('./routes/emails');
-const proposalsRoutes       = require('./routes/proposals');
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
@@ -48,9 +45,6 @@ app.use('/api/copper-pricing',                  copperRoutes);
 
 // ── Legacy routes (auth guard applied at mount point) ─────────────────────────
 app.use('/api/prices',     requireAuth, pricesLegacyRoutes);
-app.use('/api/drawings',   requireAuth, drawingsRoutes);
-app.use('/api/emails',     requireAuth, emailsRoutes);
-app.use('/api/proposals',  requireAuth, proposalsRoutes);
 
 app.get('/api/health', async (req, res) => {
   let db = 'unknown';

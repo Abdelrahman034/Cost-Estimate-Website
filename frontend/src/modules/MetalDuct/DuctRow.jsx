@@ -1,13 +1,14 @@
 import React from 'react';
 import { Circle, CheckCircle2, Trash2 } from 'lucide-react';
-import { selectGauge, getMaxDimension, calculateSurfaceArea, detectShape } from '@utils/ductCalculations';
+import { selectGauge, getMaxDimension, calculateSurfaceArea, detectShape, DUCT_MATERIAL_OPTIONS, getThicknessMm } from '@utils/ductCalculations';
 
 export default function DuctRow({ row, result, index, onChange, onRemove, sizePresets = [], unitLabel = 'ft', showScaleHint = false, scaleFactor = 1.0 }) {
-  const maxDim = getMaxDimension(row.size);
-  const gauge = row.size ? selectGauge(maxDim) : null;
-  const shape = row.size ? detectShape(row.size) : null;
+  const maxDim      = getMaxDimension(row.size);
+  const shape       = row.size ? detectShape(row.size) : null;
+  const gauge       = row.size ? selectGauge(maxDim, shape) : null;
+  const ductMaterial = row.ductMaterial || 'galvanized';
+  const thicknessMm = gauge ? getThicknessMm(gauge, ductMaterial) : null;
 
-  // Actual feet after applying scale factor (mirrors Excel J4 = E2 × D4)
   const rawLf = Number(row.linearFeet || 0);
   const actualLf = rawLf * scaleFactor;
 
@@ -77,7 +78,7 @@ export default function DuctRow({ row, result, index, onChange, onRemove, sizePr
         )}
       </td>
 
-      {/* Linear measurement (mm / in / ft / custom) */}
+      {/* Linear measurement */}
       <td className="px-3 py-2">
         <input
           className="input text-xs"
@@ -87,7 +88,6 @@ export default function DuctRow({ row, result, index, onChange, onRemove, sizePr
           value={row.linearFeet}
           onChange={(e) => onChange(row.id, 'linearFeet', e.target.value)}
         />
-        {/* Show computed feet when a non-ft unit is active */}
         {showScaleHint && rawLf > 0 && (
           <div className="text-xs text-blue-500 mt-0.5 font-mono">
             = {actualLf.toFixed(3)} ft
@@ -113,12 +113,30 @@ export default function DuctRow({ row, result, index, onChange, onRemove, sizePr
         </select>
       </td>
 
-      {/* Gauge (auto) */}
+      {/* Material */}
+      <td className="px-3 py-2">
+        <select
+          className="input text-xs"
+          value={ductMaterial}
+          onChange={(e) => onChange(row.id, 'ductMaterial', e.target.value)}
+        >
+          {DUCT_MATERIAL_OPTIONS.map((m) => (
+            <option key={m.value} value={m.value}>{m.label}</option>
+          ))}
+        </select>
+      </td>
+
+      {/* Gauge (auto) + thickness */}
       <td className="px-3 py-2">
         {gauge ? (
-          <span className="inline-flex items-center justify-center w-10 h-7 bg-blue-100 text-blue-700 rounded text-xs font-bold">
-            {gauge}
-          </span>
+          <>
+            <span className="inline-flex items-center justify-center w-10 h-7 bg-blue-100 text-blue-700 rounded text-xs font-bold">
+              {gauge}
+            </span>
+            {thicknessMm && (
+              <div className="text-xs text-gray-400 mt-0.5 font-mono">{thicknessMm.toFixed(3)} mm</div>
+            )}
+          </>
         ) : (
           <span className="text-gray-300 text-xs">—</span>
         )}

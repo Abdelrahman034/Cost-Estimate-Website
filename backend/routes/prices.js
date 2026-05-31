@@ -1,37 +1,67 @@
 const express = require('express');
 const router  = express.Router();
-const { getCurrentPrices, priceHistory } = require('../services');
+const { getCurrentPrices } = require('../services');
+const prisma = require('../prisma/client');
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
+// ── Helpers (replaces legacy SQLite priceHistory) ─────────────────────────────
+
+async function getLatestPriceHistory(companyId) {
+  try {
+    return await prisma.priceHistory.findFirst({
+      where: companyId ? { companyId } : undefined,
+      orderBy: { fetchedAt: 'desc' },
+    });
+  } catch { return null; }
+}
+
+async function savePriceHistory(companyId, pricesData) {
+  try {
+    await prisma.priceHistory.create({
+      data: { companyId, pricesJson: pricesData, source: 'api' },
+    });
+  } catch { /* non-fatal */ }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 router.get('/current', async (req, res) => {
+  const companyId = req.user?.companyId;
   try {
     const forceRefresh = req.query.refresh === 'true';
 
     if (!forceRefresh) {
-      const cached = priceHistory.getLatest();
-      if (cached && cached.savedAt) {
-        const age = Date.now() - new Date(cached.savedAt).getTime();
+      const cached = await getLatestPriceHistory(companyId);
+      if (cached?.fetchedAt) {
+        const age = Date.now() - new Date(cached.fetchedAt).getTime();
         if (age < CACHE_TTL_MS) {
-          return res.json({ ...cached, cached: true });
+          return res.json({ ...cached.pricesJson, cached: true });
         }
       }
     }
 
     const prices = await getCurrentPrices();
-    priceHistory.save(prices);
+    if (companyId) await savePriceHistory(companyId, prices);
     res.json({ ...prices, cached: false });
   } catch (err) {
     console.error('Price fetch error:', err.message);
-    const lastSaved = priceHistory.getLatest();
-    if (lastSaved) return res.json({ ...lastSaved, cached: true, fallback: true });
+    const lastSaved = await getLatestPriceHistory(companyId);
+    if (lastSaved) return res.json({ ...lastSaved.pricesJson, cached: true, fallback: true });
     res.status(500).json({ error: err.message });
   }
 });
 
-router.get('/history', (req, res) => {
-  try { res.json(priceHistory.getAll(20)); }
-  catch (err) { res.status(500).json({ error: err.message }); }
+router.get('/history', async (req, res) => {
+  const companyId = req.user?.companyId;
+  try {
+    const rows = await prisma.priceHistory.findMany({
+      where: companyId ? { companyId } : undefined,
+      orderBy: { fetchedAt: 'desc' },
+      take: 20,
+    });
+    res.json(rows.map(r => ({ ...r.pricesJson, fetchedAt: r.fetchedAt, source: r.source })));
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 router.get('/defaults', (req, res) => {

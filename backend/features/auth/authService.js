@@ -188,7 +188,8 @@ async function getMe(userId) {
     err.status = 404;
     throw err;
   }
-  return user;
+  // Normalize to the same shape as login — company becomes a string (name only)
+  return formatUserResponse(user);
 }
 
 // ── Validate Invite Token ─────────────────────────────────────────────────────

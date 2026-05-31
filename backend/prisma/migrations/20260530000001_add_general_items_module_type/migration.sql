@@ -1,0 +1,2 @@
+-- Add GENERAL_ITEMS to ModuleType enum
+ALTER TYPE "ModuleType" ADD VALUE IF NOT EXISTS 'GENERAL_ITEMS';

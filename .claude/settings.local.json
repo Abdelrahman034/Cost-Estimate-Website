@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "PowerShell(Start-Process \"C:\\\\Users\\\\Abdelrahman Salah\\\\OneDrive\\\\Documents\\\\Claude\\\\Projects\\\\Cost Estimator Website\\\\START.bat\")",
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Abdelrahman Salah\\\\OneDrive\\\\Documents\\\\Claude\\\\Projects\\\\Cost Estimator Website\" -Recurse -File)",
+      "Bash(Select-Object -ExpandProperty FullName)"
     ]
   }
 }

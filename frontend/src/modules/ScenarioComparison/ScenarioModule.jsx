@@ -4,17 +4,14 @@
  * Lets you define up to 4 named scenarios with different markup/rate parameters
  * and see how each one changes the final bid number — instantly, as you type.
  *
- * Typical use cases:
- *   • "What if we increase our overhead by 5%?"
- *   • "Low bid vs. target vs. conservative — what's our range?"
- *   • Prepare three numbers before walking into a negotiation
- *
- * State persisted in localStorage (key: scenario_comparison)
- * API_TODO: Save scenarios via POST /api/estimates/{projectId}/scenarios
+ * Persistence:
+ *   Project mode  → auto-saved to DB via useEstimate('SCENARIO_COMPARISON')
+ *   Standalone    → falls back to localStorage (key: scenario_comparison)
  */
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { Plus, Trash2, Download, RotateCcw, TrendingUp, TrendingDown } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useEstimate } from '@hooks/useEstimate';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const uid = () => `sc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -267,15 +264,39 @@ function ComparisonTable({ scenarios, results }) {
 
 // ─── Main Module ──────────────────────────────────────────────────────────────
 export default function ScenarioModule() {
+  const { projectId, loadEstimate, saveEstimate, saving } = useEstimate('SCENARIO_COMPARISON');
+  const loadedRef = useRef(false);
+
   const [scenarios, _setScenarios] = useState(() => load('scenario_comparison', DEFAULT_SCENARIOS));
 
+  // ── Load from DB on mount (project mode) ──────────────────────────────────
+  useEffect(() => {
+    if (!projectId) return;
+    loadEstimate().then(est => {
+      if (Array.isArray(est?.rowsJson) && est.rowsJson.length > 0 && est.rowsJson[0]?.id) {
+        _setScenarios(est.rowsJson);
+      }
+      loadedRef.current = true;
+    });
+  }, [projectId]); // eslint-disable-line
+
+  // ── Auto-save to DB (debounced 1.5s) whenever scenarios change ─────────────
+  const saveTimer = useRef(null);
   const setScenarios = useCallback((updater) => {
     _setScenarios(prev => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
+      // Always keep localStorage in sync (standalone + cache)
       localStorage.setItem('scenario_comparison', JSON.stringify(next));
+      // Persist to DB in project mode
+      if (projectId && loadedRef.current) {
+        clearTimeout(saveTimer.current);
+        saveTimer.current = setTimeout(() => {
+          saveEstimate({ rowsJson: next });
+        }, 1500);
+      }
       return next;
     });
-  }, []);
+  }, [projectId, saveEstimate]);
 
   const updateScenario = useCallback((id, field, value) => {
     setScenarios(prev => prev.map(sc => sc.id === id ? { ...sc, [field]: value } : sc));
@@ -398,7 +419,9 @@ export default function ScenarioModule() {
       <ComparisonTable scenarios={scenarios} results={results} />
 
       <p className="text-xs text-gray-600 text-center">
-        Parameters auto-save to this browser · Use Export CSV to share with your team
+        {projectId
+          ? `Auto-saved to project${saving ? ' — saving…' : ''} · Use Export CSV to share`
+          : 'Parameters saved in this browser only — open a project to persist across devices'}
       </p>
     </div>
   );

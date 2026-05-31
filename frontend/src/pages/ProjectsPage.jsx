@@ -1,30 +1,57 @@
 // pages/ProjectsPage.jsx
 //
-// Landing page for all authenticated users.
-// Shows the company's project list and lets any user create a new project.
+// Projects list — table view sorted by bid date (due date).
+// Columns: Name · Type · Status · Submission · Due Date · Estimator ·
+//          Area · Tonnage · Manhours · Bid Value · Margin %
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { projectsApi } from '@services/projectsApi';
 import { useAuth } from '@contexts/AuthContext';
 import {
   FolderOpen, Plus, Search, Loader2, AlertCircle,
-  MapPin, Calendar, User, ChevronRight, Building2,
+  ChevronRight, X,
 } from 'lucide-react';
 
-// ── Status badge ──────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-const STATUS_STYLES = {
-  ACTIVE:   'bg-green-50  text-green-700  border-green-200',
-  ARCHIVED: 'bg-gray-50   text-gray-500   border-gray-200',
-  WON:      'bg-blue-50   text-blue-700   border-blue-200',
-  LOST:     'bg-red-50    text-red-500    border-red-200',
+const fmtCurrency = (v) =>
+  v != null ? Number(v).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }) : '—';
+
+const fmtDate = (iso) =>
+  iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }) : '—';
+
+const fmtNum = (v, dec = 0) =>
+  v != null && !isNaN(v) ? Number(v).toLocaleString('en-US', { maximumFractionDigits: dec }) : '—';
+
+// ── Badge components ──────────────────────────────────────────────────────────
+
+const STATUS_META = {
+  ACTIVE:   { label: 'Active',    cls: 'bg-green-50  text-green-700  border-green-200'  },
+  WON:      { label: 'Won',       cls: 'bg-blue-50   text-blue-700   border-blue-200'   },
+  LOST:     { label: 'Lost',      cls: 'bg-red-50    text-red-500    border-red-200'    },
+  ON_HOLD:  { label: 'On Hold',   cls: 'bg-amber-50  text-amber-700  border-amber-200'  },
+  ARCHIVED: { label: 'Archived',  cls: 'bg-gray-50   text-gray-500   border-gray-200'   },
 };
 
-function StatusBadge({ status }) {
+const TYPE_META = {
+  COMMERCIAL:   { label: 'Commercial',   cls: 'bg-sky-50    text-sky-700    border-sky-200'    },
+  PUBLIC:       { label: 'Public',       cls: 'bg-amber-50  text-amber-700  border-amber-200'  },
+  MULTI_FAMILY: { label: 'Multi-Family', cls: 'bg-purple-50 text-purple-700 border-purple-200' },
+};
+
+const SUBMISSION_META = {
+  'Pending':    'bg-yellow-50  text-yellow-700 border-yellow-200',
+  'Submitted':  'bg-blue-50   text-blue-700   border-blue-200',
+  'Awarded':    'bg-green-50  text-green-700  border-green-200',
+  'Not Submitted': 'bg-gray-50 text-gray-500  border-gray-200',
+  'Late':       'bg-red-50    text-red-600    border-red-200',
+};
+
+function Badge({ label, cls }) {
   return (
-    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${STATUS_STYLES[status] || STATUS_STYLES.ACTIVE}`}>
-      {status}
+    <span className={`inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded-full border whitespace-nowrap ${cls}`}>
+      {label}
     </span>
   );
 }
@@ -32,7 +59,10 @@ function StatusBadge({ status }) {
 // ── New Project Modal ─────────────────────────────────────────────────────────
 
 function NewProjectModal({ open, onClose, onCreate }) {
-  const [form, setForm]     = useState({ name: '', location: '', owner: '', gc: '', bidDate: '', notes: '' });
+  const [form, setForm]     = useState({
+    name: '', location: '', gc: '', bidDate: '', notes: '',
+    projectType: '', submissionStatus: 'Pending',
+  });
   const [error, setError]   = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -43,9 +73,12 @@ function NewProjectModal({ open, onClose, onCreate }) {
     setError('');
     setSaving(true);
     try {
-      const project = await projectsApi.create(form);
+      const payload = {
+        ...form,
+      };
+      const project = await projectsApi.create(payload);
       onCreate(project);
-      setForm({ name: '', location: '', owner: '', gc: '', bidDate: '', notes: '' });
+      setForm({ name: '', location: '', gc: '', bidDate: '', notes: '', projectType: '', area: '', submissionStatus: 'Pending' });
       onClose();
     } catch (err) {
       setError(err.response?.data?.error || 'Could not create project.');
@@ -58,10 +91,13 @@ function NewProjectModal({ open, onClose, onCreate }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg">
-        <div className="px-6 py-5 border-b border-gray-100">
-          <h2 className="text-lg font-semibold text-gray-900">New project</h2>
-          <p className="text-sm text-gray-400 mt-0.5">Fill in the basic details — you can always edit them later.</p>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">New project</h2>
+            <p className="text-sm text-gray-400 mt-0.5">Fill in the basic details — you can always edit them later.</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
         </div>
 
         <form onSubmit={submit} className="px-6 py-5 space-y-4">
@@ -71,34 +107,44 @@ function NewProjectModal({ open, onClose, onCreate }) {
             </div>
           )}
 
-          {/* Project name */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Project name <span className="text-red-500">*</span></label>
-            <input
-              name="name" value={form.name} onChange={handle}
-              placeholder="Downtown Office Tower — HVAC"
-              required autoFocus
-              className="input w-full"
-            />
+            <input name="name" value={form.name} onChange={handle} placeholder="Downtown Office Tower" required autoFocus className="input w-full" />
           </div>
 
-          {/* Location + Bid date */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Location</label>
-              <input name="location" value={form.location} onChange={handle} placeholder="City, State" className="input w-full" />
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Project type <span className="text-red-500">*</span></label>
+              <select name="projectType" value={form.projectType} onChange={handle} required className="input w-full">
+                <option value="">— select —</option>
+                <option value="COMMERCIAL">Commercial</option>
+                <option value="PUBLIC">Public</option>
+                <option value="MULTI_FAMILY">Multi-Family</option>
+              </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Bid date</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Submission status</label>
+              <select name="submissionStatus" value={form.submissionStatus} onChange={handle} className="input w-full">
+                <option value="Pending">Pending</option>
+                <option value="Submitted">Submitted</option>
+                <option value="Awarded">Awarded</option>
+                <option value="Not Submitted">Not Submitted</option>
+                <option value="Late">Late</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Bid / Due date</label>
               <input type="date" name="bidDate" value={form.bidDate} onChange={handle} className="input w-full" />
             </div>
           </div>
 
-          {/* Owner + GC */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Property owner</label>
-              <input name="owner" value={form.owner} onChange={handle} placeholder="Owner name" className="input w-full" />
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Location</label>
+              <input name="location" value={form.location} onChange={handle} placeholder="City, State" className="input w-full" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">General contractor</label>
@@ -106,21 +152,13 @@ function NewProjectModal({ open, onClose, onCreate }) {
             </div>
           </div>
 
-          {/* Notes */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Notes</label>
-            <textarea
-              name="notes" value={form.notes} onChange={handle}
-              placeholder="Any notes about this project…"
-              rows={3}
-              className="input w-full resize-none"
-            />
+            <textarea name="notes" value={form.notes} onChange={handle} rows={2} className="input w-full resize-none" />
           </div>
 
           <div className="flex items-center justify-end gap-3 pt-2">
-            <button type="button" onClick={onClose} className="btn-secondary px-4 py-2">
-              Cancel
-            </button>
+            <button type="button" onClick={onClose} className="btn-secondary px-4 py-2">Cancel</button>
             <button type="submit" disabled={saving} className="btn-primary px-5 py-2 flex items-center gap-2">
               {saving && <Loader2 size={14} className="animate-spin" />}
               {saving ? 'Creating…' : 'Create project'}
@@ -129,60 +167,6 @@ function NewProjectModal({ open, onClose, onCreate }) {
         </form>
       </div>
     </div>
-  );
-}
-
-// ── Project Card ──────────────────────────────────────────────────────────────
-
-function ProjectCard({ project, onClick }) {
-  const bidDate = project.bidDate ? new Date(project.bidDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null;
-  const estimateCount = project._count?.estimates ?? 0;
-
-  return (
-    <button
-      onClick={onClick}
-      className="w-full text-left p-5 rounded-xl border border-gray-200 bg-white hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 flex items-start gap-4"
-    >
-      <div className="w-10 h-10 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-        <FolderOpen size={18} className="text-blue-600" />
-      </div>
-
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="font-semibold text-gray-900 truncate">{project.name}</span>
-          <StatusBadge status={project.status} />
-        </div>
-
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-400">
-          {project.location && (
-            <span className="flex items-center gap-1">
-              <MapPin size={11} /> {project.location}
-            </span>
-          )}
-          {bidDate && (
-            <span className="flex items-center gap-1">
-              <Calendar size={11} /> Bid {bidDate}
-            </span>
-          )}
-          {project.gc && (
-            <span className="flex items-center gap-1">
-              <Building2 size={11} /> {project.gc}
-            </span>
-          )}
-          {project.createdBy && (
-            <span className="flex items-center gap-1">
-              <User size={11} /> {project.createdBy.firstName} {project.createdBy.lastName}
-            </span>
-          )}
-        </div>
-
-        <div className="mt-2 text-xs text-gray-400">
-          {estimateCount} estimate{estimateCount !== 1 ? 's' : ''}
-        </div>
-      </div>
-
-      <ChevronRight size={16} className="text-gray-300 flex-shrink-0 mt-1" />
-    </button>
   );
 }
 
@@ -214,53 +198,57 @@ export default function ProjectsPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Client-side filter by search
-  const filtered = projects.filter(p =>
-    p.name.toLowerCase().includes(search.toLowerCase()) ||
-    p.location?.toLowerCase().includes(search.toLowerCase()) ||
-    p.gc?.toLowerCase().includes(search.toLowerCase())
-  );
+  const handleCreated = (project) => setProjects(prev => [project, ...prev]);
 
-  const handleCreated = (project) => {
-    setProjects(prev => [project, ...prev]);
+  // Filter + keep server-side sort (bidDate asc)
+  const filtered = useMemo(() => {
+    if (!search) return projects;
+    const q = search.toLowerCase();
+    return projects.filter(p =>
+      p.name.toLowerCase().includes(q) ||
+      p.location?.toLowerCase().includes(q) ||
+      p.gc?.toLowerCase().includes(q) ||
+      p.createdBy?.firstName?.toLowerCase().includes(q) ||
+      p.createdBy?.lastName?.toLowerCase().includes(q)
+    );
+  }, [projects, search]);
+
+  const estimatorName = (p) => {
+    if (!p.createdBy) return '—';
+    const { firstName, lastName, email } = p.createdBy;
+    return firstName ? `${firstName} ${lastName ?? ''}`.trim() : email;
   };
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="max-w-full">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-5">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">
             {isAdmin ? 'All Projects' : 'My Projects'}
           </h1>
           <p className="text-sm text-gray-400 mt-0.5">
-            {loading
-              ? '…'
-              : isAdmin
-                ? `${projects.length} project${projects.length !== 1 ? 's' : ''} across your company`
-                : `${projects.length} project${projects.length !== 1 ? 's' : ''} assigned to you`
-            }
+            {loading ? '…' : `${projects.length} project${projects.length !== 1 ? 's' : ''} · sorted by bid date`}
           </p>
         </div>
-        {isAdmin && (
-          <button onClick={() => setModal(true)} className="btn-primary flex items-center gap-2 px-4 py-2">
-            <Plus size={16} /> New project
-          </button>
-        )}
-      </div>
-
-      {/* Search */}
-      {projects.length > 0 && (
-        <div className="relative mb-5">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search by name, location or GC…"
-            className="input w-full pl-9"
-          />
+        <div className="flex items-center gap-3">
+          {/* Search */}
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search projects…"
+              className="input pl-8 w-56"
+            />
+          </div>
+          {isAdmin && (
+            <button onClick={() => setModal(true)} className="btn-primary flex items-center gap-2 px-4 py-2">
+              <Plus size={16} /> New project
+            </button>
+          )}
         </div>
-      )}
+      </div>
 
       {/* Content */}
       {loading ? (
@@ -285,9 +273,7 @@ export default function ProjectsPage() {
                   </button>
                 </>
               ) : (
-                <p className="text-gray-400 text-sm mt-1">
-                  You haven't been assigned to any projects yet. Ask your admin to add you.
-                </p>
+                <p className="text-gray-400 text-sm mt-1">You haven't been assigned to any projects yet.</p>
               )}
             </>
           ) : (
@@ -298,14 +284,121 @@ export default function ProjectsPage() {
           )}
         </div>
       ) : (
-        <div className="space-y-3">
-          {filtered.map(project => (
-            <ProjectCard
-              key={project.id}
-              project={project}
-              onClick={() => navigate(`/projects/${project.id}`)}
-            />
-          ))}
+        <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  <th className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap">Project</th>
+                  <th className="text-left px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">Type</th>
+                  <th className="text-left px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">Status</th>
+                  <th className="text-left px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">Submission</th>
+                  <th className="text-left px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">Due Date ↑</th>
+                  <th className="text-left px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">Estimator</th>
+                  <th className="text-right px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">Tonnage</th>
+                  <th className="text-right px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">Man-hrs</th>
+                  <th className="text-right px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">Bid Value</th>
+                  <th className="text-right px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">Margin %</th>
+                  <th className="px-3 py-3 w-8"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {filtered.map(p => {
+                  const statusMeta     = STATUS_META[p.status] ?? STATUS_META.ACTIVE;
+                  const typeMeta       = p.projectType ? TYPE_META[p.projectType] : null;
+                  const subCls         = p.submissionStatus ? (SUBMISSION_META[p.submissionStatus] ?? 'bg-gray-50 text-gray-500 border-gray-200') : null;
+                  const marginDisplay = p.marginPct != null
+                    ? `${p.marginPct.toFixed(1)}%`
+                    : '—';
+
+                  return (
+                    <tr
+                      key={p.id}
+                      onClick={() => navigate(`/projects/${p.id}`)}
+                      className="hover:bg-blue-50/40 cursor-pointer transition-colors group"
+                    >
+                      {/* Project name + location */}
+                      <td className="px-4 py-3 min-w-[180px]">
+                        <div className="font-semibold text-gray-900 truncate max-w-[220px]">{p.name}</div>
+                        {p.location && <div className="text-xs text-gray-400 truncate">{p.location}</div>}
+                      </td>
+
+                      {/* Type */}
+                      <td className="px-3 py-3 whitespace-nowrap">
+                        {typeMeta
+                          ? <Badge label={typeMeta.label} cls={typeMeta.cls} />
+                          : <span className="text-gray-300 text-xs">—</span>}
+                      </td>
+
+                      {/* Status */}
+                      <td className="px-3 py-3 whitespace-nowrap">
+                        <Badge label={statusMeta.label} cls={statusMeta.cls} />
+                      </td>
+
+                      {/* Submission */}
+                      <td className="px-3 py-3 whitespace-nowrap">
+                        {p.submissionStatus
+                          ? <Badge label={p.submissionStatus} cls={subCls} />
+                          : <span className="text-gray-300 text-xs">—</span>}
+                      </td>
+
+                      {/* Due date */}
+                      <td className="px-3 py-3 whitespace-nowrap text-gray-700 tabular-nums">
+                        {fmtDate(p.bidDate)}
+                      </td>
+
+                      {/* Estimator */}
+                      <td className="px-3 py-3 whitespace-nowrap text-gray-600 max-w-[120px] truncate">
+                        {estimatorName(p)}
+                      </td>
+
+                      {/* Tonnage */}
+                      <td className="px-3 py-3 text-right tabular-nums text-gray-700">
+                        {p.totalTonnage != null ? fmtNum(p.totalTonnage, 1) : '—'}
+                      </td>
+
+                      {/* Man-hours */}
+                      <td className="px-3 py-3 text-right tabular-nums text-gray-700">
+                        {p.totalManhours != null ? fmtNum(p.totalManhours, 0) : '—'}
+                      </td>
+
+                      {/* Bid value (from SUMMARY estimate) */}
+                      <td className="px-3 py-3 text-right tabular-nums">
+                        {p.bidValue != null ? (
+                          <div>
+                            <div className="font-semibold text-emerald-700">{fmtCurrency(p.bidValue)}</div>
+                            {p.directCost != null && (
+                              <div className="text-[10px] text-gray-400">cost {fmtCurrency(p.directCost)}</div>
+                            )}
+                          </div>
+                        ) : (
+                          p.directCost != null
+                            ? <span className="text-gray-500 text-xs">{fmtCurrency(p.directCost)}</span>
+                            : <span className="text-gray-300">—</span>
+                        )}
+                      </td>
+
+                      {/* Margin % */}
+                      <td className="px-3 py-3 text-right tabular-nums">
+                        {marginDisplay !== '—' ? (
+                          <span className={`text-sm font-semibold ${parseFloat(marginDisplay) >= 15 ? 'text-emerald-600' : parseFloat(marginDisplay) >= 10 ? 'text-amber-600' : 'text-red-500'}`}>
+                            {marginDisplay}
+                          </span>
+                        ) : (
+                          <span className="text-gray-300">—</span>
+                        )}
+                      </td>
+
+                      {/* Arrow */}
+                      <td className="px-3 py-3">
+                        <ChevronRight size={14} className="text-gray-300 group-hover:text-blue-400 transition-colors" />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

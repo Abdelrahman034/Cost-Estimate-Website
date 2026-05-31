@@ -286,7 +286,6 @@ export const DEMO_MODULE_TOTALS = {
   diffuser:      { totalMaterial:  9200, totalLabor:  3800, totalCost:  13000 },
   fan_schedule:  { totalMaterial: 14600, totalLabor:  5200, totalCost:  19800 },
   vav_schedule:  { totalMaterial:     0, totalLabor:     0, totalCost:      0 },
-  cw_pipe:       { totalMaterial:     0, totalLabor:     0, totalCost:      0 },
   elec_heat:     { totalMaterial:  4800, totalLabor:  2100, totalCost:   6900 },
 };
 

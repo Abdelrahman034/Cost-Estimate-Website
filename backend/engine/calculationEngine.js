@@ -218,13 +218,36 @@ const VRF_LABOR_HOURS = {
   startUp:       [[0,5],[5,5],[10,6],[20,8],[50,14],[75,28]],
 };
 
-// ── Fan Schedule — Pricing Tables (indexed by CFM) ───────────────────────────
+// ── Fan Schedule — Pricing Tables ────────────────────────────────────────────
 // Source: Fan Schedule sheet
 
+// Fallback base price by CFM (used when no unit price / quote is provided)
 const FAN_BASE_PRICE_TABLE = [
   [0,350],[200,480],[500,720],[1000,1050],[2000,1620],[3000,2450],[5000,3900],[10000,6800],
 ];
 
+// ── Fan Labor — Type + Size Category table ────────────────────────────────────
+// Source: Fan Schedule sheet cols Z–AC (hours) × AC3 ($25/hr)
+// Mirrors Excel formula: INDEX($AA$5:$AC$15, MATCH(type,$Z$5:$Z$15), MATCH(size,$AA$4:$AC$4)) × $25
+// Size categories: 'Small' | 'Large' | 'Enormous'
+const FAN_LABOR_TABLE = {
+  'HVLS (Big Ass)':     { Small: 60,  Large: 100, Enormous: 140 },
+  'Ceiling (Standard)': { Small:  8,  Large:  10, Enormous:  14 },
+  'Ceiling Exhaust':    { Small:  5,  Large:   6, Enormous:   7 },
+  'Inline Exhaust':     { Small:  9,  Large:  11, Enormous:  14 },
+  'Roof Mounted':       { Small: 10,  Large:  14, Enormous:  20 },
+  'Shop Exhaust':       { Small: 12,  Large:  16, Enormous:  48 },
+  'Other':              { Small:  0,  Large:   0, Enormous:   0 },
+};
+
+// Penetration costs — source: Fan Schedule T5/T7
+const FAN_ROOF_PENETRATION = 100;   // T5
+const FAN_WALL_PENETRATION = 200;   // T7
+
+// Misc parts rate — source: Fan Schedule M3
+const FAN_MISC_UPLIFT = 0.20;       // 20% of (unit + other cost)
+
+// Optional accessories (extend beyond Excel baseline — additive on top)
 const FAN_ACCESSORY_TABLES = {
   disconnectSwitch: 95,
   gfiOutlet:        75,
@@ -236,8 +259,8 @@ const FAN_ACCESSORY_TABLES = {
   wiring:          [[0,140],[200,170],[500,210],[1000,260],[2000,330],[5000,500],[10000,750]],
 };
 
+// Accessory labor hours (CFM-based, for optional accessories only)
 const FAN_LABOR_HOURS = {
-  baseInstall:     [[0,3.5],[200,4.5],[500,5.5],[1000,7.5],[2000,11],[3000,15],[5000,20],[10000,30]],
   disconnectSwitch: 1.5,
   gfiOutlet:        1.0,
   backdraftDamper: [[0,1],[200,1.5],[500,2],[1000,2.5],[2000,3.5],[5000,5],[10000,7]],
@@ -246,7 +269,6 @@ const FAN_LABOR_HOURS = {
   vfd:             [[0,3],[200,4],[500,5],[1000,6.5],[2000,9],[5000,13],[10000,18]],
   birdScreen:      [[0,0.5],[200,0.75],[500,1],[1000,1.5],[2000,2.5],[5000,4],[10000,6]],
   wiring:          [[0,2],[200,2.5],[500,3],[1000,4],[2000,5.5],[5000,8],[10000,12]],
-  startUp:         [[0,1],[200,1],[500,1.5],[1000,2],[2000,2.5],[5000,3.5],[10000,5]],
 };
 
 // ── Louvers & Dampers — Pricing ───────────────────────────────────────────────
@@ -655,32 +677,68 @@ function calcVRFUnit(unit) {
 }
 
 // ── Fan ───────────────────────────────────────────────────────────────────────
+//
+// Excel column mapping (Fan Schedule sheet):
+//   G  = unitPrice (unit cost)
+//   H  = otherCost (other cost — free-form extra)
+//   I  = roofPenetration flag  → K col: $100 if "x"
+//   J  = wallPenetration flag  → K col: $200 if "x"
+//   K  = penetrationCost       = IF(roof,"x",$T$5, IF(wall,"x",$T$7, 0))
+//   L  = miscCost              = SUM(G:H) × 0.20
+//   M  = totalMaterial         = G + H + K + L   (+accessories if any)
+//   N  = laborInput            = manual override (0 = use table)
+//   O  = laborTable            = INDEX(hrs_table, MATCH(type), MATCH(size)) × $25
+//   P  = laborFinal            = IF(N>0, N, O)
+//   Q  = Mat + Labor
 
 function calcFanUnit(unit) {
   const {
-    cfm = 0, ownerProvided = '', unitPrice = 0,
-    quotedEquipCost = null, accessories = {},
+    cfm            = 0,
+    ownerProvided  = '',
+    unitPrice      = 0,
+    quotedEquipCost = null,
+    otherCost      = 0,          // H col — free-form extra cost
+    penetrationType = '',        // 'roof' | 'wall' | '' — drives K col
+    fanType        = '',         // Excel E col — matched against FAN_LABOR_TABLE
+    sizeCategory   = 'Large',   // Excel F col — 'Small' | 'Large' | 'Enormous'
+    laborInput     = 0,          // Excel N col — manual labor override ($)
+    accessories    = {},
   } = unit;
 
   const c = Number(cfm) || 0;
-  const estEquipCost = round0(Number(unitPrice) > 0 ? Number(unitPrice) : lookupByTons(FAN_BASE_PRICE_TABLE, c));
+
+  // Equipment cost (G col → uses quoted if provided, else unit price, else CFM table)
+  const estEquipCost = round0(
+    Number(unitPrice) > 0 ? Number(unitPrice) : lookupByTons(FAN_BASE_PRICE_TABLE, c),
+  );
   const equipCost = ownerProvided === 'xx' ? 0
     : (quotedEquipCost != null ? Number(quotedEquipCost) : estEquipCost);
 
-  let accMaterial = 0, accLabor = 0, accHours = 0;
+  const otherCostNum = Number(otherCost) || 0;
 
+  // K col — penetration cost
+  const penetrationCost =
+    penetrationType === 'roof' ? FAN_ROOF_PENETRATION :
+    penetrationType === 'wall' ? FAN_WALL_PENETRATION : 0;
+
+  // L col — misc = (unit + other) × 20%
+  const miscCost = round2((equipCost + otherCostNum) * FAN_MISC_UPLIFT);
+
+  // Base material (M col) = G + H + K + L
+  const baseMaterial = round2(equipCost + otherCostNum + penetrationCost + miscCost);
+
+  // Optional accessories (extend beyond Excel — additive on top of base)
+  let accMaterial = 0, accLaborExtra = 0, accHoursExtra = 0;
   const addAcc = (sel, matTable, hoursTable) => {
     if (!sel || sel === '') return;
     const mat = Array.isArray(matTable) ? lookupByTons(matTable, c) : (Number(matTable) || 0);
     const hrs = Array.isArray(hoursTable) ? lookupByTons(hoursTable, c) : (Number(hoursTable) || 0);
-    accMaterial += sel === 'xx' ? 0 : round2(mat);
-    accLabor    += round2(hrs * FAN_TECH_RATE);
-    accHours    += round2(hrs);
+    accMaterial    += sel === 'xx' ? 0 : round2(mat);
+    accLaborExtra  += round2(hrs * FAN_TECH_RATE);
+    accHoursExtra  += round2(hrs);
   };
-
   const T = FAN_ACCESSORY_TABLES;
   const L = FAN_LABOR_HOURS;
-
   addAcc(accessories.disconnectSwitch, T.disconnectSwitch, L.disconnectSwitch);
   addAcc(accessories.gfiOutlet,        T.gfiOutlet,        L.gfiOutlet);
   addAcc(accessories.backdraftDamper,  T.backdraftDamper,  L.backdraftDamper);
@@ -690,20 +748,33 @@ function calcFanUnit(unit) {
   addAcc(accessories.birdScreen,       T.birdScreen,       L.birdScreen);
   addAcc(accessories.wiring,           T.wiring,           L.wiring);
 
-  const baseHrs  = lookupByTons(L.baseInstall, c);
-  const startHrs = lookupByTons(L.startUp, c);
-  accLabor  += round2((baseHrs + startHrs) * FAN_TECH_RATE);
-  accHours  += baseHrs + startHrs;
+  const totalMaterial = round2(baseMaterial + accMaterial);
 
-  const misc      = round2(accMaterial * MISC_CONSUMABLES_PCT);
-  const totalMat  = round2(equipCost + accMaterial + misc);
-  const totalLabor = round2(accLabor);
+  // O col — base labor from type + size table × $25/hr
+  const typeRow   = FAN_LABOR_TABLE[fanType] || FAN_LABOR_TABLE['Other'];
+  const tableHrs  = typeRow[sizeCategory] ?? 0;
+  const tableLabor = round2(tableHrs * FAN_TECH_RATE);
+
+  // P col — manual override wins when laborInput > 0
+  const baseLabor  = Number(laborInput) > 0 ? round2(Number(laborInput)) : tableLabor;
+  const totalLabor = round2(baseLabor + accLaborExtra);
+  const totalHours = round2(tableHrs + accHoursExtra);
 
   return {
-    ...unit, estEquipCost, equipCost,
-    accMaterial: round2(accMaterial), miscCost: misc,
-    totalMaterial: totalMat, totalLabor,
-    totalHours: round2(accHours), totalCost: round2(totalMat + totalLabor),
+    ...unit,
+    estEquipCost,
+    equipCost,
+    otherCost:       otherCostNum,
+    penetrationCost,
+    miscCost,
+    baseMaterial,
+    accMaterial:     round2(accMaterial),
+    totalMaterial,
+    tableLabor,
+    baseLabor,
+    totalLabor,
+    totalHours,
+    totalCost:       round2(totalMaterial + totalLabor),
   };
 }
 
@@ -831,7 +902,8 @@ module.exports = {
   SPLIT_ACCESSORY_TABLES, SPLIT_LABOR_HOURS,
   WALL_MOUNT_ACCESSORY_TABLES, WALL_MOUNT_LABOR_HOURS,
   VRF_ACCESSORY_TABLES, VRF_LABOR_HOURS,
-  FAN_BASE_PRICE_TABLE, FAN_ACCESSORY_TABLES, FAN_LABOR_HOURS,
+  FAN_BASE_PRICE_TABLE, FAN_LABOR_TABLE, FAN_ACCESSORY_TABLES, FAN_LABOR_HOURS,
+  FAN_ROOF_PENETRATION, FAN_WALL_PENETRATION, FAN_MISC_UPLIFT,
   LOUVER_DAMPER_PRICING, LD_ACCESSORIES,
   SERVICE_PRICING_TABLE,
   // Helpers

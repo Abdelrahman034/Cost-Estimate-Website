@@ -1,6 +1,6 @@
 /**
  * Unit Schedule Module
- * Implements the "Unit Sched", "Fan Schedule", and "Louvers & FD" Excel tabs.
+ * Implements the "Unit Sched" Excel tab.
  *
  * Productivity features:
  *   • Auto-naming        — next sequential tag pre-filled on Add
@@ -22,12 +22,8 @@ import {
   calcSplitBatch,
   calcWallMountBatch,
   calcVRFBatch,
-  calcFanBatch,
-  calcLouverDamperBatch,
   rollUpUnitSummary,
   SYSTEM_TYPES,
-  FAN_TYPES,
-  LOUVER_DAMPER_TYPES,
   DEFAULT_UNIT_PRICING_TABLES,
   TECH_RATE,
   SPLIT_TECH_RATE,
@@ -47,8 +43,6 @@ import PackagedRow      from './PackagedRow';
 import SplitRow         from './SplitRow';
 import WallMountRow     from './WallMountRow';
 import VRFRow           from './VRFRow';
-import FanRow           from './FanRow';
-import LouverDamperRow  from './LouverDamperRow';
 import UnitSummaryPanel from './UnitSummaryPanel';
 
 // Auto-naming: scans last row, increments trailing number
@@ -128,24 +122,6 @@ const newVRFRow = (id) => ({
     pvcCond: '', cuCond: '', thermostat: '', smokeDetectors: '', sensorQty: 0,
   },
 });
-const newFanRow = (id) => ({
-  id, name: '', type: FAN_TYPES[0], cfm: 0,
-  mount: 'Roof', drive: 'Direct Drive',
-  ownerProvided: '', unitPrice: 0, quotedEquipCost: null,
-  miscPct: 3,
-  accessories: {
-    disconnectSwitch: '', gfiOutlet: '', backdraftDamper: '',
-    curb: '', flexConnection: '', vfd: '', birdScreen: '', wiring: '',
-  },
-});
-const newLouverDamperRow = (id) => ({
-  id, name: '', type: LOUVER_DAMPER_TYPES[0],
-  widthIn: 0, heightIn: 0, qty: 1,
-  ownerProvided: '', unitPrice: 0,
-  miscPct: 3,
-  accessories: { screen: '', actuator: '', sleeve: '' },
-});
-
 // Tab config
 const TABS = [
   { id: 'service',      label: 'Service Existing',  color: 'blue'   },
@@ -153,8 +129,6 @@ const TABS = [
   { id: 'split',        label: 'Split Systems',     color: 'green'  },
   { id: 'wallMount',    label: 'Wall Mount',        color: 'orange' },
   { id: 'vrf',          label: 'VRF Systems',       color: 'red'    },
-  { id: 'fans',         label: 'Fans',              color: 'cyan'   },
-  { id: 'louverDamper', label: 'Louvers & Dampers', color: 'teal'   },
 ];
 
 const TAB_COLOR_CLASSES = {
@@ -163,8 +137,6 @@ const TAB_COLOR_CLASSES = {
   green:  { active: 'border-green-600 text-green-700 bg-green-50',      dot: 'bg-green-500'  },
   orange: { active: 'border-orange-500 text-orange-700 bg-orange-50',   dot: 'bg-orange-500' },
   red:    { active: 'border-red-600 text-red-700 bg-red-50',            dot: 'bg-red-500'    },
-  cyan:   { active: 'border-cyan-600 text-cyan-700 bg-cyan-50',         dot: 'bg-cyan-500'   },
-  teal:   { active: 'border-teal-600 text-teal-700 bg-teal-50',         dot: 'bg-teal-500'   },
 };
 
 // Copy-from-project
@@ -262,8 +234,6 @@ export default function UnitScheduleModule({ projectInfo }) {
   const [splitRows,        setSplitRows]        = useState([newSplitRow('sp-1')]);
   const [wallMountRows,    setWallMountRows]    = useState([newWallMountRow('wm-1')]);
   const [vrfRows,          setVRFRows]          = useState([newVRFRow('v-1')]);
-  const [fanRows,          setFanRows]          = useState([newFanRow('f-1')]);
-  const [louverDamperRows, setLouverDamperRows] = useState([newLouverDamperRow('ld-1')]);
   const { projectId, projectName, loadEstimate, saveEstimate, saving, lastSaved, saveError } = useEstimate('UNIT_SCHEDULE');
 
   // Prevent auto-save from firing immediately after DB load
@@ -313,24 +283,13 @@ export default function UnitScheduleModule({ projectInfo }) {
     }))),
     [vrfRows, techRates.vrf, effAccOverrides.vrf, unitPricingTables] // eslint-disable-line react-hooks/exhaustive-deps
   );
-  const fanResults = useMemo(
-    () => calcFanBatch(fanRows.map(r => ({ ...r, pricingTables: unitPricingTables }))),
-    [fanRows, unitPricingTables]
-  );
-  const louverDamperResults = useMemo(
-    () => calcLouverDamperBatch(louverDamperRows.map(r => ({ ...r, pricingTables: unitPricingTables }))),
-    [louverDamperRows, unitPricingTables]
-  );
-
   const summary = useMemo(() => rollUpUnitSummary({
     serviceTotals:      serviceResults.totals,
     packagedTotals:     packagedResults.totals,
     splitTotals:        splitResults.totals,
     wallMountTotals:    wallMountResults.totals,
     vrfTotals:          vrfResults.totals,
-    fanTotals:          fanResults.totals,
-    louverDamperTotals: louverDamperResults.totals,
-  }), [serviceResults, packagedResults, splitResults, wallMountResults, vrfResults, fanResults, louverDamperResults]);
+  }), [serviceResults, packagedResults, splitResults, wallMountResults, vrfResults]);
 
   // Push totals to dashboard
   useEffect(() => {
@@ -345,15 +304,16 @@ export default function UnitScheduleModule({ projectInfo }) {
       saveEstimate({
         rowsJson: {
           serviceRows, packagedRows, splitRows,
-          wallMountRows, vrfRows, fanRows, louverDamperRows,
+          wallMountRows, vrfRows,
         },
         totalMaterial: summary.grand.totalMaterial,
         totalLabor:    summary.grand.totalLabor,
         totalCost:     summary.grand.totalCost,
+        totalsJson:    { totalTons: summary.grand.coolTons, totalCopper: summary.grand.totalCopper },
       });
     }, 2000);
     return () => clearTimeout(timer);
-  }, [projectId, saveEstimate, summary, serviceRows, packagedRows, splitRows, wallMountRows, vrfRows, fanRows, louverDamperRows]);
+  }, [projectId, saveEstimate, summary, serviceRows, packagedRows, splitRows, wallMountRows, vrfRows]);
 
   // Load from DB if in project context; otherwise fall back to demo mode
   useEffect(() => {
@@ -366,8 +326,6 @@ export default function UnitScheduleModule({ projectInfo }) {
           if (d.splitRows?.length)        setSplitRows(d.splitRows);
           if (d.wallMountRows?.length)    setWallMountRows(d.wallMountRows);
           if (d.vrfRows?.length)          setVRFRows(d.vrfRows);
-          if (d.fanRows?.length)          setFanRows(d.fanRows);
-          if (d.louverDamperRows?.length) setLouverDamperRows(d.louverDamperRows);
         }
         // Mark load complete so auto-save can begin watching for user edits
         setTimeout(() => { loadedRef.current = true; }, 100);
@@ -385,8 +343,6 @@ export default function UnitScheduleModule({ projectInfo }) {
       if (d.splitRows?.length)        setSplitRows(d.splitRows);
       if (d.wallMountRows?.length)    setWallMountRows(d.wallMountRows);
       if (d.vrfRows?.length)          setVRFRows(d.vrfRows);
-      if (d.fanRows?.length)          setFanRows(d.fanRows);
-      if (d.louverDamperRows?.length) setLouverDamperRows(d.louverDamperRows);
     } catch (_) {}
   }, [loadEstimate, projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -398,19 +354,17 @@ export default function UnitScheduleModule({ projectInfo }) {
       projectName: projectInfo?.projectName || 'Unnamed project',
       savedAt:     Date.now(),
       sections: {
-        service:      serviceRows,
-        packaged:     packagedRows,
-        split:        splitRows,
-        wallMount:    wallMountRows,
-        vrf:          vrfRows,
-        fans:         fanRows,
-        louverDamper: louverDamperRows,
+        service:   serviceRows,
+        packaged:  packagedRows,
+        split:     splitRows,
+        wallMount: wallMountRows,
+        vrf:       vrfRows,
       },
     };
     const updated = [snapshot, ...existing].slice(0, 10);
     localStorage.setItem('unit_schedule_project_snapshots', JSON.stringify(updated));
     toast.success(`Snapshot "${snapshot.projectName}" saved`);
-  }, [projectInfo, serviceRows, packagedRows, splitRows, wallMountRows, vrfRows, fanRows, louverDamperRows]);
+  }, [projectInfo, serviceRows, packagedRows, splitRows, wallMountRows, vrfRows]);
 
   // Generic updater — handles nested sub-objects via dot notation:
   //   'accessories.key'      → merges into row.accessories
@@ -438,8 +392,6 @@ export default function UnitScheduleModule({ projectInfo }) {
   const updateSplit        = makeUpdater(setSplitRows);
   const updateWallMount    = makeUpdater(setWallMountRows);
   const updateVRF          = makeUpdater(setVRFRows);
-  const updateFan          = makeUpdater(setFanRows);
-  const updateLouverDamper = makeUpdater(setLouverDamperRows);
 
   const removeRow = (setter, id) => setter(prev => prev.filter(r => r.id !== id));
 
@@ -479,8 +431,6 @@ export default function UnitScheduleModule({ projectInfo }) {
   const addSplitRow        = makeAdder(setSplitRows,        newSplitRow,        'sp');
   const addWallMountRow    = makeAdder(setWallMountRows,    newWallMountRow,    'wm');
   const addVRFRow          = makeAdder(setVRFRows,          newVRFRow,          'v');
-  const addFanRow          = makeAdder(setFanRows,          newFanRow,          'f');
-  const addLouverDamperRow = makeAdder(setLouverDamperRows, newLouverDamperRow, 'ld');
 
   const makeImporter = (setter, factory, prefix) =>
     (partialRows) => {
@@ -498,8 +448,6 @@ export default function UnitScheduleModule({ projectInfo }) {
   const importSplitRows        = makeImporter(setSplitRows,        newSplitRow,        'sp');
   const importWallMountRows    = makeImporter(setWallMountRows,    newWallMountRow,    'wm');
   const importVRFRows          = makeImporter(setVRFRows,          newVRFRow,          'v');
-  const importFanRows          = makeImporter(setFanRows,          newFanRow,          'f');
-  const importLouverDamperRows = makeImporter(setLouverDamperRows, newLouverDamperRow, 'ld');
 
   const makeTemplateInserter = (setter, factory, prefix) =>
     (templateData) => {
@@ -511,8 +459,6 @@ export default function UnitScheduleModule({ projectInfo }) {
   const insertSplitTemplate        = makeTemplateInserter(setSplitRows,        newSplitRow,        'sp');
   const insertWallMountTemplate    = makeTemplateInserter(setWallMountRows,    newWallMountRow,    'wm');
   const insertVRFTemplate          = makeTemplateInserter(setVRFRows,          newVRFRow,          'v');
-  const insertFanTemplate          = makeTemplateInserter(setFanRows,          newFanRow,          'f');
-  const insertLouverDamperTemplate = makeTemplateInserter(setLouverDamperRows, newLouverDamperRow, 'ld');
 
   const exportCSV = () => {
     const f = (n) => (n || 0).toFixed(2);
@@ -528,8 +474,6 @@ export default function UnitScheduleModule({ projectInfo }) {
     addSection('Split Systems',    splitRows,        splitResults,        'coolTons');
     addSection('Wall Mount',       wallMountRows,    wallMountResults,    'coolTons');
     addSection('VRF Systems',      vrfRows,          vrfResults,          'coolTons');
-    addSection('Fans',             fanRows,          fanResults,          'cfm');
-    addSection('Louvers/Dampers',  louverDamperRows, louverDamperResults, 'qty');
     const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -593,13 +537,11 @@ export default function UnitScheduleModule({ projectInfo }) {
   };
 
   const rowCounts = {
-    service:      serviceRows.length,
-    packaged:     packagedRows.length,
-    split:        splitRows.length,
-    wallMount:    wallMountRows.length,
-    vrf:          vrfRows.length,
-    fans:         fanRows.length,
-    louverDamper: louverDamperRows.length,
+    service:   serviceRows.length,
+    packaged:  packagedRows.length,
+    split:     splitRows.length,
+    wallMount: wallMountRows.length,
+    vrf:       vrfRows.length,
   };
 
   const renderTabContent = () => {
@@ -689,40 +631,6 @@ export default function UnitScheduleModule({ projectInfo }) {
             })}
           </SectionWrapper>
         );
-      case 'fans':
-        return (
-          <SectionWrapper title="Fans"
-            subtitle="Exhaust, supply, kitchen, and power ventilator fans — sized by CFM"
-            sectionKey="fans" totals={fanResults.totals}
-            onAdd={addFanRow} onImportRows={importFanRows} onInsertTemplate={insertFanTemplate}>
-            {fanRows.map((row, i) => {
-              const result = fanResults.rows.find(r => r.id === row.id) || {};
-              return (
-                <FanRow key={row.id} row={row} result={result} index={i}
-                  onChange={updateFan}
-                  onRemove={() => removeRow(setFanRows, row.id)}
-                  onDuplicate={() => duplicateRow(setFanRows, row.id, 'f')} />
-              );
-            })}
-          </SectionWrapper>
-        );
-      case 'louverDamper':
-        return (
-          <SectionWrapper title="Louvers & Dampers"
-            subtitle="OA/supply/return louvers and fire/smoke/volume/backdraft dampers — sized by face area"
-            sectionKey="louverDamper" totals={louverDamperResults.totals}
-            onAdd={addLouverDamperRow} onImportRows={importLouverDamperRows} onInsertTemplate={insertLouverDamperTemplate}>
-            {louverDamperRows.map((row, i) => {
-              const result = louverDamperResults.rows.find(r => r.id === row.id) || {};
-              return (
-                <LouverDamperRow key={row.id} row={row} result={result} index={i}
-                  onChange={updateLouverDamper}
-                  onRemove={() => removeRow(setLouverDamperRows, row.id)}
-                  onDuplicate={() => duplicateRow(setLouverDamperRows, row.id, 'ld')} />
-              );
-            })}
-          </SectionWrapper>
-        );
       default:
         return null;
     }
@@ -738,7 +646,7 @@ export default function UnitScheduleModule({ projectInfo }) {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Unit Schedule</h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            HVAC equipment, fans, louvers and dampers — auto-naming, bulk add, templates, CSV import
+            HVAC equipment — auto-naming, bulk add, templates, CSV import
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -754,8 +662,6 @@ export default function UnitScheduleModule({ projectInfo }) {
                   if (d.splitRows?.length)        setSplitRows(d.splitRows);
                   if (d.wallMountRows?.length)    setWallMountRows(d.wallMountRows);
                   if (d.vrfRows?.length)          setVRFRows(d.vrfRows);
-                  if (d.fanRows?.length)          setFanRows(d.fanRows);
-                  if (d.louverDamperRows?.length) setLouverDamperRows(d.louverDamperRows);
                   toast.success('Demo unit schedule loaded!');
                 } catch (_) { toast.error('Could not load demo data'); }
               }}
@@ -783,6 +689,21 @@ export default function UnitScheduleModule({ projectInfo }) {
             title="Save a snapshot of this project for use in 'Copy from project'">
             <CopyIcon size={15} /> Save Snapshot
           </button>
+          {projectId && (
+            <button
+              onClick={() => saveEstimate({
+                rowsJson: { serviceRows, packagedRows, splitRows, wallMountRows, vrfRows },
+                totalsJson:    { totalTons: summary.grand.coolTons, totalCopper: summary.grand.totalCopper },
+                totalMaterial: summary.grand.totalMaterial,
+                totalLabor:    summary.grand.totalLabor,
+                totalCost:     summary.grand.totalCost,
+              })}
+              disabled={saving}
+              className="btn-primary flex items-center gap-2 text-sm"
+            >
+              {saving ? 'Saving…' : '💾 Save'}
+            </button>
+          )}
           <button onClick={exportCSV} className="btn-secondary flex items-center gap-2 text-sm">
             <Download size={15} /> Export CSV
           </button>

@@ -29,22 +29,39 @@ async function listProjects({ companyId, userId, role, status, page = 1, limit =
   const [projects, total] = await prisma.$transaction([
     prisma.project.findMany({
       where,
-      orderBy: { updatedAt: 'desc' },
+      orderBy: { bidDate: 'asc' },  // always sort by due date ascending
       skip:    (page - 1) * limit,
       take:    limit,
       select: {
-        id:          true,
-        name:        true,
-        location:    true,
-        owner:       true,
-        gc:          true,
-        bidDate:     true,
-        status:      true,
-        notes:       true,
-        createdAt:   true,
-        updatedAt:   true,
+        id:               true,
+        name:             true,
+        location:         true,
+        owner:            true,
+        gc:               true,
+        bidDate:          true,
+        status:           true,
+        projectType:      true,
+        bidValue:         true,
+        area:             true,
+        submissionStatus: true,
+        marginPct:        true,
+        notes:            true,
+        createdAt:        true,
+        updatedAt:        true,
         createdBy: {
           select: { id: true, firstName: true, lastName: true, email: true },
+        },
+        // Aggregate estimate totals for manhours + cost rollup
+        estimates: {
+          select: {
+            module:        true,
+            totalHours:    true,
+            totalCost:     true,
+            totalMaterial: true,
+            totalLabor:    true,
+            totalsJson:    true,
+            rowsJson:      true,
+          },
         },
         _count: { select: { estimates: true } },
       },
@@ -52,8 +69,60 @@ async function listProjects({ companyId, userId, role, status, page = 1, limit =
     prisma.project.count({ where }),
   ]);
 
+  // Compute derived fields per project
+  const enriched = projects.map(p => {
+    const totalManhours = p.estimates.reduce((s, e) => s + (parseFloat(e.totalHours) || 0), 0);
+
+    // Direct cost = sum of all module totalCosts (excluding SUMMARY which has markup)
+    const directCost = p.estimates
+      .filter(e => e.module !== 'SUMMARY')
+      .reduce((s, e) => s + (parseFloat(e.totalCost) || 0), 0);
+
+    // Bid value = SUMMARY estimate totalCost (includes markup/overhead)
+    const summaryEst = p.estimates.find(e => e.module === 'SUMMARY');
+    const bidValue   = summaryEst ? (parseFloat(summaryEst.totalCost) || null) : null;
+
+    // Margin % = (bidValue - directCost) / bidValue
+    const marginPct  = (bidValue && bidValue > 0 && directCost > 0)
+      ? ((bidValue - directCost) / bidValue) * 100
+      : null;
+
+    // Extract tonnage: prefer totalsJson.totalTons, then sum coolTons from rowsJson
+    let totalTonnage = null;
+    const unitEst = p.estimates.find(e => e.module === 'UNIT_SCHEDULE');
+    if (unitEst) {
+      // Fast path: totalsJson written by new code
+      if (unitEst.totalsJson?.totalTons) {
+        totalTonnage = parseFloat(unitEst.totalsJson.totalTons) || null;
+      } else if (unitEst.rowsJson && typeof unitEst.rowsJson === 'object' && !Array.isArray(unitEst.rowsJson)) {
+        // rowsJson = { packagedRows, splitRows, wallMountRows, vrfRows, serviceRows, ... }
+        const rowArrays = [
+          unitEst.rowsJson.packagedRows,
+          unitEst.rowsJson.splitRows,
+          unitEst.rowsJson.wallMountRows,
+          unitEst.rowsJson.vrfRows,
+          unitEst.rowsJson.serviceRows,
+        ].filter(Array.isArray);
+        const summed = rowArrays.flat().reduce((s, row) => {
+          return s + (parseFloat(row.coolTons ?? row.tons ?? row.tonnage ?? 0) || 0);
+        }, 0);
+        totalTonnage = summed > 0 ? summed : null;
+      }
+    }
+
+    return {
+      ...p,
+      totalManhours: totalManhours || null,
+      directCost:    directCost    || null,
+      bidValue:      bidValue      || null,
+      marginPct:     marginPct     != null ? parseFloat(marginPct.toFixed(1)) : null,
+      totalTonnage,
+      estimates:     undefined,
+    };
+  });
+
   return {
-    data:  projects,
+    data:  enriched,
     meta: { total, page, limit, pages: Math.ceil(total / limit) },
   };
 }
@@ -101,7 +170,7 @@ async function getProject({ id, companyId, userId, role }) {
 // ── Create Project ────────────────────────────────────────────────────────────
 
 async function createProject({ companyId, createdById, data }) {
-  const { name, location, owner, gc, bidDate, notes,
+  const { name, location, owner, gc, bidDate, notes, projectType, bidValue,
           companyName, companyAddress, companyPhone, companyEmail } = data;
 
   const project = await prisma.project.create({
@@ -114,6 +183,8 @@ async function createProject({ companyId, createdById, data }) {
       gc:             gc          || null,
       bidDate:        bidDate ? new Date(bidDate) : null,
       notes:          notes       || null,
+      // projectType: projectType || null,  // uncomment after SQL migration
+      // bidValue:    bidValue != null ? Number(bidValue) : null,  // uncomment after SQL migration
       companyName:    companyName    || null,
       companyAddress: companyAddress || null,
       companyPhone:   companyPhone   || null,
@@ -139,7 +210,7 @@ async function updateProject({ id, companyId, data }) {
     throw err;
   }
 
-  const { name, location, owner, gc, bidDate, notes, status,
+  const { name, location, owner, gc, bidDate, notes, status, projectType, bidValue,
           companyName, companyAddress, companyPhone, companyEmail } = data;
 
   const updateData = {};
@@ -150,6 +221,8 @@ async function updateProject({ id, companyId, data }) {
   if (bidDate       !== undefined) updateData.bidDate        = bidDate ? new Date(bidDate) : null;
   if (notes         !== undefined) updateData.notes          = notes;
   if (status        !== undefined) updateData.status         = status;
+  // if (projectType !== undefined) updateData.projectType = projectType || null;  // uncomment after SQL migration
+  // if (bidValue    !== undefined) updateData.bidValue    = bidValue != null ? Number(bidValue) : null;  // uncomment after SQL migration
   if (companyName   !== undefined) updateData.companyName    = companyName;
   if (companyAddress!== undefined) updateData.companyAddress = companyAddress;
   if (companyPhone  !== undefined) updateData.companyPhone   = companyPhone;

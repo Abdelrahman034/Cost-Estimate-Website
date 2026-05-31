@@ -17,19 +17,19 @@ import Header from '@components/Layout/Header';
 // Modules
 import {
   MetalDuctModule, DiffuserModule, FanScheduleModule,
-  DrawingAnalyzer, PriceMonitor, ProposalGenerator,
   SummaryModule, UnitScheduleModule, SupplierRFQModule,
   ScenarioModule, ChangeLogModule, ProposalPdfModule, ElectricHeatModule,
+  GeneralModule,
 } from '@modules';
+import LouversModule from '@modules/LouversAndDampers/LouversModule';
 import SettingsPage    from '@pages/SettingsPage';
-import Dashboard       from '@pages/Dashboard';
 import AdminDashboard  from '@pages/AdminDashboard';
 import CompanyPage     from '@pages/CompanyPage';
 import TeamPage        from '@pages/TeamPage';
 import ProjectsPage      from '@pages/ProjectsPage';
 import ProjectDetailPage from '@pages/ProjectDetailPage';
-import DemoSetup       from '@pages/DemoSetup';
 import { SettingsProvider } from '@contexts/SettingsContext';
+import { ActiveProjectProvider } from '@contexts/ActiveProjectContext';
 import { ROUTE_PATHS } from '@config/navigation';
 
 // The main app shell (shown only when logged in)
@@ -38,7 +38,7 @@ function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [projectInfo, setProjectInfo] = useState({
     projectName: '', location: '', owner: '', gc: '', bidDate: '',
-    companyName: user?.company || 'Your HVAC Company',
+    companyName: user?.company?.name || user?.company || 'Your HVAC Company',
     companyAddress: '', companyPhone: '', companyEmail: '',
   });
 
@@ -54,27 +54,19 @@ function AppShell() {
         />
         <main className="flex-1 overflow-y-auto p-6">
           <Routes>
-            {/* Role-aware home: admins see the bid dashboard, employees go to their projects */}
-            <Route
-              path={ROUTE_PATHS.DASHBOARD}
-              element={
-                user?.role === 'ADMIN'
-                  ? <Dashboard projectInfo={projectInfo} />
-                  : <Navigate to="/projects" replace />
-              }
-            />
+            {/* Home → always go to projects */}
+            <Route path={ROUTE_PATHS.DASHBOARD} element={<Navigate to="/projects" replace />} />
+            <Route path={ROUTE_PATHS.GENERAL}           element={<GeneralModule />} />
             <Route path={ROUTE_PATHS.DUCT}             element={<MetalDuctModule projectInfo={projectInfo} />} />
             <Route path={ROUTE_PATHS.DIFFUSER}         element={<DiffuserModule />} />
             <Route path={ROUTE_PATHS.UNIT_SCHEDULE}    element={<UnitScheduleModule projectInfo={projectInfo} />} />
             <Route path={ROUTE_PATHS.FAN_SCHEDULE}     element={<FanScheduleModule />} />
             <Route path={ROUTE_PATHS.ELEC_HEAT}        element={<ElectricHeatModule />} />
+            <Route path={ROUTE_PATHS.LOUVERS}          element={<LouversModule />} />
             <Route path={ROUTE_PATHS.SUPPLIER_RFQ}     element={<SupplierRFQModule projectInfo={projectInfo} />} />
             <Route path={ROUTE_PATHS.SCENARIOS}        element={<ScenarioModule projectInfo={projectInfo} />} />
             <Route path={ROUTE_PATHS.CHANGELOG}        element={<ChangeLogModule projectInfo={projectInfo} />} />
             <Route path={ROUTE_PATHS.PROPOSAL_PDF}     element={<ProposalPdfModule projectInfo={projectInfo} />} />
-            <Route path={ROUTE_PATHS.DRAWINGS}         element={<DrawingAnalyzer projectInfo={projectInfo} />} />
-            <Route path={ROUTE_PATHS.PRICES}           element={<PriceMonitor />} />
-            <Route path={ROUTE_PATHS.PROPOSAL}         element={<ProposalGenerator projectInfo={projectInfo} />} />
             <Route path={ROUTE_PATHS.SUMMARY}          element={<SummaryModule projectInfo={projectInfo} />} />
             <Route path={ROUTE_PATHS.SETTINGS}
               element={
@@ -84,10 +76,15 @@ function AppShell() {
               }
             />
             <Route path={ROUTE_PATHS.ADMIN_ANALYTICS}  element={<AdminDashboard />} />
-            <Route path={ROUTE_PATHS.DEMO_SETUP}       element={<DemoSetup onProjectInfoChange={setProjectInfo} />} />
             <Route path="/projects"     element={<ProjectsPage />} />
             <Route path="/projects/:id" element={<ProjectDetailPage />} />
-            <Route path="/company"      element={<CompanyPage />} />
+            <Route path="/company"
+              element={
+                <ProtectedRoute allowedRoles={['ADMIN']}>
+                  <CompanyPage />
+                </ProtectedRoute>
+              }
+            />
             <Route path="/team"         element={<TeamPage />} />
             <Route path="*" element={<Navigate to={user?.role === 'ADMIN' ? ROUTE_PATHS.DASHBOARD : '/projects'} replace />} />
           </Routes>
@@ -100,6 +97,7 @@ function AppShell() {
 export default function App() {
   return (
     <AuthProvider>
+      <ActiveProjectProvider>
       <SettingsProvider>
         <Toaster position="top-right" />
         <Routes>
@@ -117,6 +115,7 @@ export default function App() {
           />
         </Routes>
       </SettingsProvider>
+      </ActiveProjectProvider>
     </AuthProvider>
   );
 }

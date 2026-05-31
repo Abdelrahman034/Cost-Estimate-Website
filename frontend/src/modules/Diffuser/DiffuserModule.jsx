@@ -28,20 +28,23 @@ const DEFAULT_SETTINGS = {
 // ─── Row factory ─────────────────────────────────────────────────────────────
 let _rowCounter = 1;
 const newRow = () => ({
-  id:           `diff-${Date.now()}-${_rowCounter++}`,
-  typeId:       '',
-  qty:          '',
-  sheetrock:    false,
-  quotedPrice:  0,
+  id:          `diff-${Date.now()}-${_rowCounter++}`,
+  tag:         '',        // Excel col C — user tag like "E1", "R1", "S1"
+  typeId:      '',
+  qty:         '',
+  sheetrock:   false,
+  quotedPrice: 0,
+  notes:       '',
 });
 
 // ─── Build calc settings from module settings ─────────────────────────────────
 function buildCalcSettings(settings) {
-  const { priceMode, marketPrices, customPrices, grdRate, miscPct, frameCost } = settings;
+  const { priceMode, marketPrices, customPrices, grdRate, miscPct, frameCost, installHrsOverrides } = settings;
   return {
     grdRate,
     miscPct,
     frameCost,
+    installHrsOverrides: installHrsOverrides ?? null,
     // marketPrices only active in market mode
     marketPrices: priceMode === 'market' ? (marketPrices ?? {}) : {},
   };
@@ -73,10 +76,11 @@ export default function DiffuserModule() {
   const settingsSnapshotRef = useSettingsAutoSave(settings, activeProjectId, () =>
     savePricingConfig({
       diffuserSettings: {
-        customPrices: settings.customPrices,
-        miscPct:      settings.miscPct,
-        frameCost:    settings.frameCost,
-        grdRate:      settings.grdRate,
+        customPrices:        settings.customPrices,
+        miscPct:             settings.miscPct,
+        frameCost:           settings.frameCost,
+        grdRate:             settings.grdRate,
+        installHrsOverrides: settings.installHrsOverrides,
       },
     }),
   );
@@ -117,35 +121,36 @@ export default function DiffuserModule() {
     }
   }, [loadEstimate, projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Calculate ───────────────────────────────────────────────────────────────
-  const calculate = useCallback(() => {
+  // ── Auto-calculate whenever rows or settings change ────────────────────────
+  useEffect(() => {
     const filled = rows.filter((r) => r.typeId && Number(r.qty) > 0);
-    if (filled.length === 0) {
-      toast.error('Add at least one diffuser type and quantity');
-      return;
-    }
-
-    // Merge per-row customPrice from settings.customPrices
+    if (filled.length === 0) { setResults(null); return; }
     const enrichedRows = rows.map((r) => ({
       ...r,
-      customPrice: settings.priceMode === 'custom'
-        ? (settings.customPrices?.[r.typeId] ?? 0)
-        : 0,
+      customPrice: settings.priceMode === 'custom' ? (settings.customPrices?.[r.typeId] ?? 0) : 0,
     }));
-
-    const calcSettings = buildCalcSettings(settings);
-    const batch = calculateDiffuserBatch(enrichedRows, calcSettings);
+    const batch = calculateDiffuserBatch(enrichedRows, buildCalcSettings(settings));
     setResults(batch);
-    toast.success(`Calculated ${filled.length} diffuser line(s)`);
     if (projectId) {
       saveEstimate({
         rowsJson:      rows,
         totalMaterial: batch.totals.totalMat,
         totalLabor:    batch.totals.totalLabor,
         totalCost:     batch.totals.total,
+        totalHours:    batch.totals.totalHours,
       });
     }
-  }, [rows, settings]);
+  }, [rows, settings, projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Manual Calculate (kept for explicit user action / toast feedback) ───────
+  const calculate = useCallback(() => {
+    const filled = rows.filter((r) => r.typeId && Number(r.qty) > 0);
+    if (filled.length === 0) {
+      toast.error('Add at least one diffuser type and quantity');
+      return;
+    }
+    toast.success(`Calculated ${filled.length} diffuser line(s)`);
+  }, [rows]);
 
   // ── Row handlers ────────────────────────────────────────────────────────────
   const handleRowChange = useCallback((id, field, value) => {
@@ -154,7 +159,26 @@ export default function DiffuserModule() {
 
   const addRow = () => setRows((prev) => [...prev, newRow()]);
 
-  const removeRow = (id) => setRows((prev) => prev.filter((r) => r.id !== id));
+  const removeRow = (id) => setRows((prev) => {
+    if (prev.length <= 1) return prev;
+    return prev.filter((r) => r.id !== id);
+  });
+
+  const duplicateRow = (id) => {
+    setRows((prev) => {
+      const idx = prev.findIndex((r) => r.id === id);
+      if (idx === -1) return prev;
+      const clone = {
+        ...JSON.parse(JSON.stringify(prev[idx])),
+        id:  `diff-${Date.now()}-${_rowCounter++}`,
+        tag: prev[idx].tag ? `${prev[idx].tag} (copy)` : '',
+      };
+      const next = [...prev];
+      next.splice(idx + 1, 0, clone);
+      return next;
+    });
+    toast.success('Row duplicated');
+  };
 
   const clearAll = () => {
     setRows([newRow()]);
@@ -296,7 +320,8 @@ export default function DiffuserModule() {
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
-                <th className="text-left px-3 py-3 font-semibold text-gray-600 w-56">Type</th>
+                <th className="text-left px-3 py-3 font-semibold text-gray-600 w-20">Tag / ID</th>
+                <th className="text-left px-3 py-3 font-semibold text-gray-600 w-52">Type</th>
                 <th className="text-left px-3 py-3 font-semibold text-gray-600 w-20">Qty</th>
                 <th className="text-center px-3 py-3 font-semibold text-gray-600 w-20">Sheetrock</th>
                 <th className="text-left px-3 py-3 font-semibold text-gray-600 w-32">
@@ -310,7 +335,8 @@ export default function DiffuserModule() {
                 <th className="text-left px-3 py-3 font-semibold text-gray-600 w-28">Total Mat</th>
                 <th className="text-left px-3 py-3 font-semibold text-gray-600 w-24">Total Labor</th>
                 <th className="text-left px-3 py-3 font-semibold text-gray-600 w-28">Total</th>
-                <th className="w-8"></th>
+                <th className="text-left px-3 py-3 font-semibold text-gray-600">Notes</th>
+                <th className="w-16"></th>
               </tr>
             </thead>
             <tbody>
@@ -324,6 +350,7 @@ export default function DiffuserModule() {
                     index={i}
                     onChange={handleRowChange}
                     onRemove={() => removeRow(row.id)}
+                    onDuplicate={() => duplicateRow(row.id)}
                   />
                 );
               })}

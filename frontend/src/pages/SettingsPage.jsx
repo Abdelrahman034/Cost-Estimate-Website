@@ -545,7 +545,7 @@ function CopperTab({ config, setCopperSetting, setCopperSafetyFactor, setCopperF
 
 const TABS = [
   { id: 'rates',           label: 'Labor Rates',    icon: Wrench     },
-  { id: 'markup',          label: 'Markup & Waste', icon: TrendingUp },
+  { id: 'markup',          label: 'Margin & Waste', icon: TrendingUp },
   { id: 'duct',            label: 'Duct Pricing',   icon: Wind       },
   { id: 'copper',          label: 'Copper',         icon: Zap        },
   { id: 'accessories',     label: 'Accessories',    icon: LayoutList },
@@ -732,6 +732,97 @@ export default function SettingsPage() {
       {/* MARKUP & WASTE */}
       {tab === 'markup' && !configLoading && (
         <div className="space-y-6">
+
+          {/* ── Job Sector Rules ─────────────────────────────────────────── */}
+          <div className="bg-white border border-gray-200 rounded-xl p-6">
+            <h2 className="font-semibold text-gray-900 mb-1">Job Sector Rules</h2>
+            <p className="text-xs text-gray-400 mb-5">
+              Configure material tax and bid addition for each job sector. These apply in the Mercury Operations bid model.
+            </p>
+            <div className="grid grid-cols-3 gap-4">
+              {[
+                { key: 'sectorCommercial',  label: 'Commercial',   icon: '🏢' },
+                { key: 'sectorPublic',      label: 'Public',       icon: '🏛️' },
+                { key: 'sectorMultiFamily', label: 'Multi Family', icon: '🏘️' },
+              ].map(({ key, label, icon }) => {
+                const val = config[key] ?? { matTaxPct: 0.0825, bidAddPct: 0, notes: '' };
+                return (
+                  <div key={key} className="bg-gray-50 rounded-xl p-4 border border-gray-200 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">{icon}</span>
+                      <span className="font-semibold text-gray-800 text-sm">{label}</span>
+                    </div>
+                    <PctInput
+                      label="Material Tax %"
+                      hint="Applied to total material cost"
+                      value={val.matTaxPct ?? 0.0825}
+                      onChange={v => set(key, { ...val, matTaxPct: v })}
+                    />
+                    <PctInput
+                      label="Bid Addition %"
+                      hint="Added to bid (e.g. public bond surcharge)"
+                      value={val.bidAddPct ?? 0}
+                      onChange={v => set(key, { ...val, bidAddPct: v })}
+                    />
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Notes <span className="font-normal text-gray-400">(shown to estimators)</span></label>
+                      <input
+                        type="text"
+                        className="input text-xs w-full"
+                        placeholder="e.g. No material tax; public bond required"
+                        value={val.notes ?? ''}
+                        onChange={e => set(key, { ...val, notes: e.target.value })}
+                      />
+                    </div>
+                    {/* Preview */}
+                    <div className="text-[11px] text-gray-500 bg-white rounded-lg px-3 py-2 border border-gray-100">
+                      Tax: <span className="font-mono font-semibold">{((val.matTaxPct ?? 0) * 100).toFixed(2)}%</span>
+                      {(val.bidAddPct ?? 0) > 0 && (
+                        <> · Bid add: <span className="font-mono font-semibold">+{((val.bidAddPct ?? 0) * 100).toFixed(2)}%</span></>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* ── Margin L / M / H ─────────────────────────────────────────── */}
+          <div className="bg-white border border-gray-200 rounded-xl p-6">
+            <h2 className="font-semibold text-gray-900 mb-1">Margin Adjustments (L / M / H)</h2>
+            <p className="text-xs text-gray-400 mb-5">
+              These offsets are added to the base Target EOY Net (10%) in the Mercury Operations bid model.
+              Estimators choose L, M, or H when building a bid — you control what each option means.
+            </p>
+            <div className="grid grid-cols-3 gap-4">
+              {[
+                { key: 'marginL', label: 'L — Low',    hint: 'Conservative / competitive bid', default: '-2%' },
+                { key: 'marginM', label: 'M — Mid',    hint: 'Standard bid margin',            default: '0%'  },
+                { key: 'marginH', label: 'H — High',   hint: 'Premium / rush bid',             default: '+2%' },
+              ].map(({ key, label, hint, default: def }) => (
+                <div key={key} className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm font-semibold text-gray-800">{label}</span>
+                    <span className="text-[11px] text-gray-400">default {def}</span>
+                  </div>
+                  <p className="text-[11px] text-gray-400 mb-3">{hint}</p>
+                  <PctInput
+                    label="Adjustment %"
+                    hint="Can be negative (e.g. −2% = lower margin)"
+                    value={config[key] ?? (key === 'marginL' ? -0.02 : key === 'marginH' ? 0.02 : 0)}
+                    onChange={v => set(key, v)}
+                  />
+                  <div className="mt-2 text-[11px] text-gray-500">
+                    Effective EOY target: <span className="font-mono font-semibold text-gray-700">
+                      {((10 + ((config[key] ?? (key === 'marginL' ? -0.02 : key === 'marginH' ? 0.02 : 0)) * 100)).toFixed(1))}%
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* ── Markup Rates ─────────────────────────────────────────────── */}
           <div className="bg-white border border-gray-200 rounded-xl p-6">
             <h2 className="font-semibold text-gray-900 mb-1">Markup Rates</h2>
             <p className="text-xs text-gray-400 mb-5">Applied to all direct costs at the bid summary level.</p>
@@ -745,6 +836,8 @@ export default function SettingsPage() {
             </div>
             <MarkupPreview config={config} />
           </div>
+
+          {/* ── Waste Factors ────────────────────────────────────────────── */}
           <div className="bg-white border border-gray-200 rounded-xl p-6">
             <h2 className="font-semibold text-gray-900 mb-1">Material Waste Factors</h2>
             <p className="text-xs text-gray-400 mb-5">

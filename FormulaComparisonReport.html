@@ -1,0 +1,917 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Formula-Level Comparison: Excel vs Web App Engine</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,monospace;background:#0d1117;color:#c9d1d9;line-height:1.6;font-size:14px}
+.header{background:#161b22;border-bottom:1px solid #30363d;padding:28px 40px}
+.header h1{font-size:1.6rem;font-weight:700;color:#e6edf3}
+.header p{color:#8b949e;margin-top:4px;font-size:0.875rem}
+.container{max-width:1400px;margin:0 auto;padding:28px 40px}
+
+/* Nav */
+.nav{display:flex;gap:8px;margin-bottom:28px;flex-wrap:wrap}
+.nav a{padding:6px 14px;border-radius:6px;background:#161b22;border:1px solid #30363d;color:#8b949e;text-decoration:none;font-size:0.8rem;font-weight:600}
+.nav a:hover,.nav a.active{background:#1f6feb;border-color:#1f6feb;color:#fff}
+
+/* Section */
+.section{margin-bottom:48px}
+.section-title{font-size:1.1rem;font-weight:700;color:#e6edf3;border-bottom:1px solid #21262d;padding-bottom:10px;margin-bottom:20px;display:flex;align-items:center;gap:10px}
+.pill{padding:3px 10px;border-radius:12px;font-size:0.7rem;font-weight:700}
+.pill-red{background:#3d1515;color:#f85149}
+.pill-orange{background:#3d2a00;color:#f0883e}
+.pill-green{background:#0f2d1e;color:#3fb950}
+.pill-blue{background:#0d2044;color:#58a6ff}
+
+/* Formula diff table */
+.fdiff{width:100%;border-collapse:collapse;margin-bottom:20px;font-size:0.82rem}
+.fdiff th{background:#161b22;color:#8b949e;padding:8px 12px;text-align:left;border-bottom:1px solid #30363d;font-weight:600;white-space:nowrap}
+.fdiff td{padding:8px 12px;border-bottom:1px solid #21262d;vertical-align:top}
+.fdiff tr:hover td{background:#161b22}
+.col-cell{width:60px;color:#8b949e;font-weight:600}
+.col-desc{width:120px;color:#c9d1d9;font-weight:600}
+.col-excel{width:35%;background:#0d1b1e}
+.col-js{width:35%;background:#1b0d1e}
+.col-status{width:80px;text-align:center}
+
+code{font-family:'Courier New',Courier,monospace;font-size:0.78rem;background:#161b22;border:1px solid #30363d;border-radius:4px;padding:2px 6px;color:#79c0ff;white-space:pre-wrap;word-break:break-all}
+.excel-formula{font-family:'Courier New',Courier,monospace;font-size:0.75rem;background:#0d1b1e;border-left:3px solid #238636;padding:6px 10px;border-radius:0 4px 4px 0;color:#7ee787;display:block;margin:4px 0;white-space:pre-wrap;word-break:break-all}
+.js-formula{font-family:'Courier New',Courier,monospace;font-size:0.75rem;background:#1b0d1e;border-left:3px solid #8957e5;padding:6px 10px;border-radius:0 4px 4px 0;color:#d2a8ff;display:block;margin:4px 0;white-space:pre-wrap;word-break:break-all}
+.js-missing{font-family:'Courier New',Courier,monospace;font-size:0.75rem;background:#2d1515;border-left:3px solid #f85149;padding:6px 10px;border-radius:0 4px 4px 0;color:#ff7b72;display:block;margin:4px 0}
+.js-fix{font-family:'Courier New',Courier,monospace;font-size:0.75rem;background:#0f2d1e;border-left:3px solid #3fb950;padding:6px 10px;border-radius:0 4px 4px 0;color:#56d364;display:block;margin:4px 0;white-space:pre-wrap;word-break:break-all}
+
+.status-match{color:#3fb950;font-weight:700}
+.status-bug{color:#f85149;font-weight:700}
+.status-missing{color:#f0883e;font-weight:700}
+
+/* Fix panel */
+.fix-panel{background:#0f2d1e;border:1px solid #238636;border-radius:8px;padding:16px 20px;margin:16px 0}
+.fix-panel h4{color:#3fb950;font-size:0.85rem;font-weight:700;margin-bottom:8px}
+.fix-panel p{color:#7ee787;font-size:0.82rem;line-height:1.7}
+
+/* Summary table */
+.sum-table{width:100%;border-collapse:collapse;font-size:0.82rem}
+.sum-table th{background:#161b22;color:#8b949e;padding:8px 14px;text-align:left;border-bottom:1px solid #30363d}
+.sum-table td{padding:8px 14px;border-bottom:1px solid #21262d}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.r{color:#f85149}.g{color:#3fb950}.y{color:#f0883e}
+
+footer{border-top:1px solid #21262d;padding:16px 40px;text-align:center;color:#484f58;font-size:0.75rem}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Formula-Level Comparison: Excel ↔ Web App Engine</h1>
+  <p>Cell-by-cell diff of Bid_Template_Commercial_v2.6.xlsx vs backend/engine/*.js — every formula examined, every discrepancy marked with exact fix</p>
+</div>
+
+<div class="container">
+
+<div class="nav">
+  <a href="#duct">Metal Duct</a>
+  <a href="#fan">Fan Schedule</a>
+  <a href="#louver">Louvers &amp; FD</a>
+  <a href="#diffuser">Diffuser</a>
+  <a href="#summary">Fix Summary</a>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     METAL DUCT
+══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="duct">
+  <div class="section-title">
+    ① Metal Duct Sheet
+    <span class="pill pill-orange">2 formula bugs</span>
+    <span class="pill pill-green">8 formulas correct</span>
+  </div>
+
+  <table class="fdiff">
+    <thead>
+      <tr>
+        <th class="col-cell">Cell</th>
+        <th class="col-desc">Column Name</th>
+        <th class="col-excel">Excel Formula (exact)</th>
+        <th class="col-js">Web App JS (engine)</th>
+        <th class="col-status">Match?</th>
+      </tr>
+    </thead>
+    <tbody>
+
+      <tr>
+        <td class="col-cell">E2</td>
+        <td class="col-desc">Scale</td>
+        <td><code>0.003</code> (ft per mm of sheet measurement)<br>J4 = E2 × D4 → linear ft</td>
+        <td>Web app receives <code>linearFeet</code> directly — no scale conversion needed on input</td>
+        <td class="col-status status-match">✓</td>
+      </tr>
+
+      <tr>
+        <td class="col-cell">K4</td>
+        <td class="col-desc">Square marker</td>
+        <td><span class="excel-formula">=IF(ISERROR(FIND("*",$E4)),"","x")</span>
+        "x" if size string contains <code>*</code></td>
+        <td><span class="js-formula">detectShape(size) → 'rectangular' if includes('x') or includes('X') or includes('*')</span></td>
+        <td class="col-status status-match">✓</td>
+      </tr>
+
+      <tr>
+        <td class="col-cell">M4</td>
+        <td class="col-desc">Area per Lin Ft</td>
+        <td><span class="excel-formula">-- Round:  E4/12 * 3.14
+-- Rect:   (W*12/144*2) + (H*12/144*2)
+         = 2*(W+H)/12</span>
+        <strong style="color:#f0883e">Note: π = 3.14 (not 3.14159)</strong></td>
+        <td><span class="js-formula">// Round
+return (Math.PI * diameter * lf * 12) / 144;
+// Math.PI = 3.14159... ≠ 3.14</span></td>
+        <td class="col-status status-bug">⚠ π diff</td>
+      </tr>
+
+      <tr>
+        <td class="col-cell">N4</td>
+        <td class="col-desc">Total Area ft²</td>
+        <td><span class="excel-formula">=M4 * IF(I4="y", MAX(0,J4-AC13), J4)</span>
+        Flex deduction: full area minus max-flex-len area.
+        Flag is <strong>"y"</strong> for flex (not "x")</td>
+        <td><span class="js-formula">const rigidLf = flexDuct
+  ? Math.max(0, lf - maxFlexLen) : lf;
+const surfaceArea = calculateSurfaceArea(size, rigidLf);
+// flexDuct=true maps to "y" in Excel</span></td>
+        <td class="col-status status-match">✓ logic</td>
+      </tr>
+
+      <tr>
+        <td class="col-cell">O4</td>
+        <td class="col-desc">Weight (lbs)</td>
+        <td><span class="excel-formula">=AC5 * N4
+-- AC4 = 0.567 kg/ft²  (constant)
+-- AC5 = 2.204 * AC4 = 1.249668 lbs/ft²
+   (same constant for ALL gauges)</span></td>
+        <td><span class="js-missing">// Physics-based gauge calculation:
+const thicknessMm = GAUGE_THICKNESS_MM[mat][gauge];
+const density = MATERIAL_DENSITY_KG_M3[mat]; // 7850
+const volumeM3 = surfaceAreaM2 * (thicknessMm/1000);
+const weightKg = volumeM3 * density + surfaceAreaM2 * zinc;
+// Gives ~0.91 lbs/ft² for 26ga vs Excel's 1.25 lbs/ft²
+// → 27% lighter for small ducts → 21% lower mat cost</span></td>
+        <td class="col-status status-bug">✗ BUG</td>
+      </tr>
+
+      <tr>
+        <td class="col-cell">P4</td>
+        <td class="col-desc">Sq Duct ($)</td>
+        <td><span class="excel-formula">=IF(ISERROR(FIND("*",$E4)),0,
+  ROUND(O4 * AC6, -1))
+-- AC6 = 4 ($/lb)
+-- ROUND(..., -1) = nearest $10</span></td>
+        <td><span class="js-formula">const ductMaterialCost = roundToNearest(weight * resolvedCostPerLb, 10);
+// roundToNearest = Math.round(v/10)*10 = same as ROUND(,-1) ✓
+// BUT weight is wrong (O4 bug above)</span></td>
+        <td class="col-status status-bug">✗ (weight)</td>
+      </tr>
+
+      <tr>
+        <td class="col-cell">Q4</td>
+        <td class="col-desc">Round Duct ($)</td>
+        <td><span class="excel-formula">=IF(ISERROR(FIND("*",$E4)),
+  INDEX($AP$5:$AP$16, MATCH($E4,$AL$5:$AL$16,0),1) * J4, 0)
+-- AP col = price/ft table, AL col = sizes</span></td>
+        <td><span class="js-formula">const ductMaterialCost =
+  interpolateRoundDuctRate(maxDim) * lf;
+// Uses its own ROUND_DUCT_PRICE_PER_FT table ✓</span></td>
+        <td class="col-status status-match">✓ (verify table)</td>
+      </tr>
+
+      <tr>
+        <td class="col-cell">R4</td>
+        <td class="col-desc">Ins. Cost ($)</td>
+        <td><span class="excel-formula">=IF(F4="x", N4*AC7, 0)
+-- AC7 = 1.25 ($/ft²)
+-- F4 = "x" means insulated</span></td>
+        <td><span class="js-formula">const insulationCost = insulated
+  ? surfaceArea * insulationPerSqFt : 0;
+// insulationPerSqFt default = 1.25 ✓</span></td>
+        <td class="col-status status-match">✓</td>
+      </tr>
+
+      <tr>
+        <td class="col-cell">S4</td>
+        <td class="col-desc">Flex Duct ($)</td>
+        <td><span class="excel-formula">=IF(I4="x",
+  AC13 * INDEX($AN$19:$AN$30,MATCH($E4,$AL$19:$AL$30),1) * 1.25,
+  0)
+-- AC13=5 ft, AN=$/25ft table, ×1.25 markup</span></td>
+        <td><span class="js-formula">flexDuctCost = maxFlexLen * flexRatePerFt * 1.25;
+// Same formula ✓ (I4="x" → flexDuct=true)</span></td>
+        <td class="col-status status-match">✓</td>
+      </tr>
+
+      <tr>
+        <td class="col-cell">T4</td>
+        <td class="col-desc">VD ($)</td>
+        <td><span class="excel-formula">=IF(H4="x", IF(G4="x",0,25), 0)
+-- $25 if VD checked AND offtake not checked</span></td>
+        <td><span class="js-formula">const vdMaterialCost = (vd && !offtake) ? vdCostDefault : 0;
+// vdCostDefault = 25 ✓</span></td>
+        <td class="col-status status-match">✓</td>
+      </tr>
+
+      <tr>
+        <td class="col-cell">U4</td>
+        <td class="col-desc">Sq Incidentals</td>
+        <td><span class="excel-formula">=SUM(P4,R4,S4,T4) * U2
+-- U2 = 0.20 (20%)</span></td>
+        <td><span class="js-formula">const incidentalsBase = ductMaterialCost
+  + insulationCost + flexDuctCost + vdMaterialCost;
+const incidentalsCost = Math.round(incidentalsBase * 0.20);
+// Same formula ✓ (but ductMaterialCost is wrong)</span></td>
+        <td class="col-status status-bug">✗ (weight)</td>
+      </tr>
+
+      <tr>
+        <td class="col-cell">V4</td>
+        <td class="col-desc">Rnd Incidentals</td>
+        <td><span class="excel-formula">=SUM(Q4) * V2
+-- V2 = 0.25 (25%) applied to round cost only</span></td>
+        <td><span class="js-formula">// rdIncRate = 0.25 applied when shape==='round' ✓</span></td>
+        <td class="col-status status-match">✓</td>
+      </tr>
+
+      <tr>
+        <td class="col-cell">W4</td>
+        <td class="col-desc">Total Mat ($)</td>
+        <td><span class="excel-formula">=SUM(P4:U4)
+-- P+Q+R+S+T+U (sq + round + ins + flex + VD + incidents)</span></td>
+        <td><span class="js-formula">totalMaterialCost = ductMaterialCost + insulationCost
+  + internalInsulationCost + flexDuctCost
+  + vdMaterialCost + incidentalsCost;
+// Same structure ✓</span></td>
+        <td class="col-status status-match">✓ structure</td>
+      </tr>
+
+      <tr>
+        <td class="col-cell">X4</td>
+        <td class="col-desc">Labor ($)</td>
+        <td><span class="excel-formula">=ROUNDUP(
+  J4*AC9                          ← lf × $23 (sheet metal)
+  + IF(R4=0, 0, AC8*J4)           ← if insulated: lf × $4
+  + IF(G4="x", AC12, 0)           ← offtake: $20
+  + IF(H4="x", 0.5*25, 0),        ← VD: $12.50
+  -1)  ← round UP to nearest $10</span></td>
+        <td><span class="js-formula">const baseDuctLaborCost = roundUpToNearest(
+  lf*laborRatePerFt          // =$23
+  + (insulated ? lf*ductWrapLabor : 0)  // =$4
+  + (offtake ? offtakeCostVal : 0)      // =$20
+  + (vd ? 0.5*vdCostDefault : 0),       // =$12.5
+  10); // ROUNDUP to 10 ✓</span></td>
+        <td class="col-status status-match">✓ exact</td>
+      </tr>
+
+    </tbody>
+  </table>
+
+  <div class="fix-panel">
+    <h4>🔧 METAL DUCT — Required Code Fixes</h4>
+    <p><strong>Fix 1 — Weight constant (O column):</strong> Replace physics calculation with Excel's fixed constant.</p>
+    <span class="js-fix">// In ductCalculationEngine.js — replace calculateWeight() call:
+// OLD (physics-based):
+const weight = calculateWeight(surfaceArea, gauge, ductMaterial);
+
+// NEW (matches Excel AC4/AC5):
+const SHEET_METAL_KG_PER_FT2 = 0.567;          // Excel AC4
+const SHEET_METAL_LBS_PER_FT2 = 0.567 * 2.204; // Excel AC5 = 1.249668
+const weight = surfaceArea * SHEET_METAL_LBS_PER_FT2;
+// Apply only to rectangular (square) duct.
+// Round duct uses price-table (Q col), not weight.</span>
+
+    <p style="margin-top:10px"><strong>Fix 2 — Pi constant (M column, round duct only):</strong> Excel uses 3.14, not Math.PI.</p>
+    <span class="js-fix">// In calculateSurfaceArea(), round branch:
+// OLD:
+return (Math.PI * parsed.diameter * lf * 12) / 144;
+// NEW (matches Excel M4 formula: E4/12 * 3.14):
+const EXCEL_PI = 3.14;
+return (EXCEL_PI * parsed.diameter * lf) / 12;</span>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════════════
+     FAN SCHEDULE
+══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="fan">
+  <div class="section-title">
+    ② Fan Schedule
+    <span class="pill pill-red">3 missing formulas</span>
+    <span class="pill pill-orange">1 wrong formula</span>
+    <span class="pill pill-green">1 correct</span>
+  </div>
+
+  <table class="fdiff">
+    <thead>
+      <tr>
+        <th class="col-cell">Cell</th>
+        <th class="col-desc">Column Name</th>
+        <th class="col-excel">Excel Formula (exact)</th>
+        <th class="col-js">Web App JS</th>
+        <th class="col-status">Match?</th>
+      </tr>
+    </thead>
+    <tbody>
+
+      <tr>
+        <td class="col-cell">K5</td>
+        <td class="col-desc">Penetrations ($)</td>
+        <td><span class="excel-formula">=IF(E5="","",IF(I5="x",$T$5,IF(J5="x",$T$7,0)))
+-- T5 = 100 (Roof penetration $)
+-- T7 = 200 (Wall penetration $)
+-- I col = "x" for roof, J col = "x" for wall</span></td>
+        <td><span class="js-missing">// MISSING — no penetration field in calcFanUnit()
+// equipCost is used directly with no penetration added
+// EF-1 is missing $200, EF-2 missing $200, etc.</span></td>
+        <td class="col-status status-missing">✗ MISSING</td>
+      </tr>
+
+      <tr>
+        <td class="col-cell">L5</td>
+        <td class="col-desc">Misc Parts ($)</td>
+        <td><span class="excel-formula">=SUM(G5:H5) * M3
+-- G = Unit Cost, H = Other Cost
+-- M3 = 0.20 (20% of equipment total)
+-- e.g. EF-1: (2500+0)*0.20 = $500</span></td>
+        <td><span class="js-missing">// WRONG — current code:
+const misc = round2(accMaterial * MISC_CONSUMABLES_PCT);
+// MISC_CONSUMABLES_PCT = 0.03 (3%)
+// accMaterial = accessories only (usually $0)
+// Result: $0 instead of $500 for EF-1</span></td>
+        <td class="col-status status-bug">✗ BUG</td>
+      </tr>
+
+      <tr>
+        <td class="col-cell">M5</td>
+        <td class="col-desc">Total Materials ($)</td>
+        <td><span class="excel-formula">=SUM(G5:H5) + SUM(K5:L5)
+= Unit + Other + Penetration + Misc
+-- EF-1: 2500 + 0 + 200 + 500 = 3200</span></td>
+        <td><span class="js-missing">// WRONG — current:
+const totalMat = round2(equipCost + accMaterial + misc);
+// Missing: penetrationCost
+// Wrong: misc base and rate</span></td>
+        <td class="col-status status-bug">✗ BUG</td>
+      </tr>
+
+      <tr>
+        <td class="col-cell">O5</td>
+        <td class="col-desc">Labor Table ($)</td>
+        <td><span class="excel-formula">=IFERROR(
+  INDEX($AA$5:$AC$15,
+    MATCH($E5,$Z$5:$Z$15,0),   ← match FAN TYPE string
+    MATCH($F5,$AA$4:$AC$4,0))  ← match SIZE (Small/Large/Enormous)
+  * $AC$3, "")                  ← × $25/hr rate
+-- Labor table (hrs × $25):
+   Type            | Small | Large | Enormous
+   HVLS (Big Ass)  |  60   |  100  |   140
+   Ceiling Std     |   8   |   10  |    14
+   Ceiling Exhaust |   5   |    6  |     7
+   Inline Exhaust  |   9   |   11  |    14
+   Roof Mounted    |  10   |   14  |    20
+   Shop Exhaust    |  12   |   16  |    48
+   Other           |   0   |    0  |     0</span></td>
+        <td><span class="js-missing">// WRONG — current uses CFM-based lookup:
+const baseHrs = lookupByTons(FAN_LABOR_HOURS.baseInstall, cfm);
+// FAN_LABOR_HOURS.baseInstall:
+//   [[0,3.5],[200,4.5],[500,5.5],[1000,7.5],...]
+// EF-1 at 950CFM: 5.5 hrs × $25 = $137.5
+// Excel: Inline Exhaust + Enormous = 14 hrs × $25 = $350
+// No sizeCategory field exists on row object</span></td>
+        <td class="col-status status-bug">✗ BUG</td>
+      </tr>
+
+      <tr>
+        <td class="col-cell">P5</td>
+        <td class="col-desc">Labor Final ($)</td>
+        <td><span class="excel-formula">=IF(E5="","", IF(N5&gt;0, N5, O5))
+-- If manual labor (N) entered: use it
+-- Else: use table lookup (O)</span></td>
+        <td><span class="js-missing">// MISSING — no manual labor override field
+// No laborInput field on fan row object</span></td>
+        <td class="col-status status-missing">✗ MISSING</td>
+      </tr>
+
+      <tr>
+        <td class="col-cell">Q5</td>
+        <td class="col-desc">Mat + Labor</td>
+        <td><span class="excel-formula">=IF(C5="","", M5+P5)</span></td>
+        <td><span class="js-formula">totalCost = round2(totalMat + totalLabor); ✓ structure</span></td>
+        <td class="col-status status-match">✓</td>
+      </tr>
+
+    </tbody>
+  </table>
+
+  <div class="fix-panel">
+    <h4>🔧 FAN SCHEDULE — Required Code Fixes in calculationEngine.js</h4>
+    <span class="js-fix">// ── Fix 1: Add penetration cost field + correct misc rate ──────────────
+function calcFanUnit(unit) {
+  const {
+    cfm = 0, ownerProvided = '',
+    unitPrice = 0, quotedEquipCost = null,
+    otherCost = 0,                   // NEW: H column (other cost)
+    penetrationType = '',             // NEW: 'roof' | 'wall' | ''
+    laborInput = 0,                   // NEW: N column (manual override)
+    accessories = {},
+  } = unit;
+
+  const ROOF_PENETRATION = 100;       // T5
+  const WALL_PENETRATION = 200;       // T7
+  const MISC_UPLIFT = 0.20;           // M3
+
+  const equipCost = ownerProvided === 'xx' ? 0
+    : (quotedEquipCost != null ? Number(quotedEquipCost) : estEquipCost);
+
+  // K column: penetration
+  const penetrationCost =
+    penetrationType === 'roof' ? ROOF_PENETRATION :
+    penetrationType === 'wall' ? WALL_PENETRATION : 0;
+
+  // L column: misc = (unit + other) × 20%
+  const miscCost = round2((Number(equipCost) + Number(otherCost)) * MISC_UPLIFT);
+
+  // M column: total material
+  const totalMaterial = round2(equipCost + Number(otherCost) + penetrationCost + miscCost);
+
+// ── Fix 2: Replace CFM labor lookup with Type+Size table ──────────────
+const FAN_LABOR_TABLE = {
+  // [type]: { Small: hrs, Large: hrs, Enormous: hrs }
+  'HVLS (Big Ass)':     { Small: 60,  Large: 100, Enormous: 140 },
+  'Ceiling (Standard)': { Small: 8,   Large: 10,  Enormous: 14  },
+  'Ceiling Exhaust':    { Small: 5,   Large: 6,   Enormous: 7   },
+  'Inline Exhaust':     { Small: 9,   Large: 11,  Enormous: 14  },
+  'Roof Mounted':       { Small: 10,  Large: 14,  Enormous: 20  },
+  'Shop Exhaust':       { Small: 12,  Large: 16,  Enormous: 48  },
+  'Other':              { Small: 0,   Large: 0,   Enormous: 0   },
+};
+
+  const sizeCategory = unit.sizeCategory || 'Large'; // 'Small'|'Large'|'Enormous'
+  const fanType = unit.fanType || unit.type || 'Other';
+  const typeRow = FAN_LABOR_TABLE[fanType] || FAN_LABOR_TABLE['Other'];
+  const tableHrs = typeRow[sizeCategory] || 0;
+  const tableLabor = round2(tableHrs * FAN_TECH_RATE); // $25/hr
+
+  // P column: manual override wins
+  const totalLabor = Number(laborInput) > 0
+    ? round2(Number(laborInput)) : tableLabor;
+}</span>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════════════
+     LOUVERS & FD
+══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="louver">
+  <div class="section-title">
+    ③ Louvers &amp; Fire Dampers
+    <span class="pill pill-red">4 wrong/missing formulas</span>
+    <span class="pill pill-green">1 correct</span>
+  </div>
+
+  <p style="color:#8b949e;font-size:0.82rem;margin-bottom:16px">
+    The Louvers &amp; FD sheet uses the <strong>exact same column structure</strong> as the Fan Schedule (K=Penetration, L=Misc, M=Total Mat, N=Labor Input, O=Labor Table, P=Labor Final, Q=Mat+Lab). The formulas are identical — only the labor lookup table and fan types differ.
+  </p>
+
+  <table class="fdiff">
+    <thead>
+      <tr>
+        <th class="col-cell">Cell</th>
+        <th class="col-desc">Column Name</th>
+        <th class="col-excel">Excel Formula (exact)</th>
+        <th class="col-js">Web App JS</th>
+        <th class="col-status">Match?</th>
+      </tr>
+    </thead>
+    <tbody>
+
+      <tr>
+        <td class="col-cell">L5</td>
+        <td class="col-desc">Misc Parts ($)</td>
+        <td><span class="excel-formula">=SUM(G5:H5) * M3
+-- M3 = 0.20 (20% uplift)
+-- L-1: (2000+0)*0.20 = $400
+-- L-2: (1000+0)*0.20 = $200</span></td>
+        <td><span class="js-missing">// WRONG — current:
+const misc = round2(totalUnitMat * MISC_CONSUMABLES_PCT);
+// MISC_CONSUMABLES_PCT = 0.03 (3%)
+// L-1: 2000 × 0.03 = $60 vs Excel $400</span></td>
+        <td class="col-status status-bug">✗ BUG rate</td>
+      </tr>
+
+      <tr>
+        <td class="col-cell">M5</td>
+        <td class="col-desc">Total Materials</td>
+        <td><span class="excel-formula">=SUM(G5:H5) + SUM(K5:L5)
+-- G=unit, H=other, K=penetration, L=misc
+-- L-1: 2000 + 0 + 0 + 400 = 2400</span></td>
+        <td><span class="js-missing">// Penetration field missing.
+// Misc base and rate wrong.
+// L-1: 2000 + 0 + 60 = 2060 (vs Excel 2400)</span></td>
+        <td class="col-status status-bug">✗ BUG</td>
+      </tr>
+
+      <tr>
+        <td class="col-cell">O5</td>
+        <td class="col-desc">Labor Table ($)</td>
+        <td><span class="excel-formula">=IFERROR(INDEX($AA$5:$AC$15,
+  MATCH($E5,$Z$5:$Z$15,0),   ← Type: "Hurricane"/"Standard Aluminum"/"Other"
+  MATCH($F5,$AA$4:$AC$4,0))  ← Size: Small/Large/Enormous
+  * $AC$3,"")                 ← × $25/hr
+-- Louver labor table:
+   Type              | Small | Large | Enormous
+   Hurricane         |  10   |  12   |   14
+   Standard Aluminum |  10   |  12   |   14
+   Other             |   0   |   0   |    0
+-- L-1: Standard Alum + Enormous = 14 × $25 = $350
+-- L-2: Standard Alum + Large    = 12 × $25 = $300</span></td>
+        <td><span class="js-missing">// WRONG — current uses area-based formula:
+const baseMat = Math.max(LD_MIN_MAT, faceArea * pricing.matPerSqFt);
+const baseHrs = Math.max(LD_MIN_HRS, faceArea * pricing.laborHrsPerSqFt);
+// Type "Standard Aluminum" NOT in LOUVER_DAMPER_PRICING map
+// Falls back to 'OA Louver': laborHrsPerSqFt = 0.60
+// L-1 faceArea = (16/12)×(14/12) = 1.556 ft²
+// baseHrs = max(0.5, 1.556×0.60) = 0.934 hrs
+// labor = 0.934 × $25 = $23.37 vs Excel $350 (93% error)</span></td>
+        <td class="col-status status-bug">✗ CRITICAL</td>
+      </tr>
+
+      <tr>
+        <td class="col-cell">P5</td>
+        <td class="col-desc">Labor Final</td>
+        <td><span class="excel-formula">=IF(N5&gt;0, N5, O5)
+Manual override wins over table</span></td>
+        <td><span class="js-missing">// MISSING — no manual labor input field</span></td>
+        <td class="col-status status-missing">✗ MISSING</td>
+      </tr>
+
+      <tr>
+        <td class="col-cell">Q5</td>
+        <td class="col-desc">Mat + Labor</td>
+        <td><span class="excel-formula">=IF(C5="","", M5+P5)</span></td>
+        <td><span class="js-formula">totalCost = round2(totalMat + totalLabor); ✓</span></td>
+        <td class="col-status status-match">✓</td>
+      </tr>
+
+    </tbody>
+  </table>
+
+  <div class="fix-panel">
+    <h4>🔧 LOUVERS — Required Code Fixes in calculationEngine.js</h4>
+    <span class="js-fix">// Completely replace calcLouverDamperUnit() with Fan-style calculation:
+
+const LOUVER_LABOR_TABLE = {
+  // hrs by type and size category
+  'Hurricane':          { Small: 10, Large: 12, Enormous: 14 },
+  'Standard Aluminum':  { Small: 10, Large: 12, Enormous: 14 },
+  'Other':              { Small: 0,  Large: 0,  Enormous: 0  },
+};
+
+const LOUVER_MISC_UPLIFT = 0.20;  // M3 = 20%
+
+function calcLouverDamperUnit(unit) {
+  const {
+    type = 'Standard Aluminum',
+    sizeCategory = 'Large',       // NEW: 'Small'|'Large'|'Enormous'
+    unitPrice = 0,
+    otherCost = 0,
+    penetrationType = '',         // 'roof'|'wall'|''
+    laborInput = 0,               // manual labor override
+    ownerProvided = '',
+    qty = 1,
+    accessories = {},
+  } = unit;
+
+  const q = Math.max(1, Number(qty));
+  const equipCost = ownerProvided === 'xx' ? 0 : Number(unitPrice);
+
+  // K col: penetration (same as fans)
+  const penetrationCost =
+    penetrationType === 'roof' ? 100 :
+    penetrationType === 'wall' ? 200 : 0;
+
+  // L col: misc = (unit + other) × 20%
+  const miscCost = round2((Number(equipCost) + Number(otherCost)) * LOUVER_MISC_UPLIFT);
+
+  // M col: total material per unit × qty
+  const totalMaterial = round2((equipCost + Number(otherCost) + penetrationCost + miscCost) * q);
+
+  // O col: type + size lookup × $25/hr
+  const typeRow = LOUVER_LABOR_TABLE[type] || LOUVER_LABOR_TABLE['Other'];
+  const tableHrs = (typeRow[sizeCategory] || 0) * q;
+  const tableLabor = round2(tableHrs * LD_TECH_RATE); // $25/hr
+
+  // P col: manual override wins
+  const totalLabor = Number(laborInput) > 0
+    ? round2(Number(laborInput)) : tableLabor;
+
+  return {
+    ...unit,
+    totalMaterial,
+    totalLabor,
+    totalCost: round2(totalMaterial + totalLabor),
+  };
+}</span>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════════════
+     DIFFUSER SCHEDULE
+══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="diffuser">
+  <div class="section-title">
+    ④ Diffuser Schedule
+    <span class="pill pill-orange">Not yet implemented in engine</span>
+  </div>
+
+  <p style="color:#8b949e;font-size:0.82rem;margin-bottom:16px">
+    The Diffuser module exists as a React component (<code>DiffuserModule.jsx</code>) but the Excel formulas reveal the exact calculation structure needed.
+  </p>
+
+  <table class="fdiff">
+    <thead>
+      <tr>
+        <th class="col-cell">Cell</th>
+        <th class="col-desc">Column Name</th>
+        <th class="col-excel">Excel Formula (exact)</th>
+        <th class="col-js">Required JS Implementation</th>
+        <th class="col-status">Status</th>
+      </tr>
+    </thead>
+    <tbody>
+
+      <tr>
+        <td class="col-cell">G4</td>
+        <td class="col-desc">Price Est ($)</td>
+        <td><span class="excel-formula">=IF($F4>0, 0,
+  INDEX($T$4:$T$18,MATCH($D4,$R$4:$R$18,0),1))
+-- If quoted price (F>0): price est = $0
+-- Else: lookup unit price by type string</span></td>
+        <td><span class="js-fix">// Price lookup table (R,T columns):
+const DIFFUSER_PRICE_TABLE = {
+  'Square >24*24 (>576 sq. in)':   180, // was labeled "install cost" but T col is price
+  'Square =24*24 (576 sq. in)':    102,
+  'Square >12*12 (>144 sq. in)':    85,
+  'Square =12*12 (144 sq. in)':     65,
+  'Square <12*12 (<144 sq. in)':    55,
+  'Slot =48" (4\')':                250,
+  'Slot =24" (2\')':                160,
+  'Other':                          102,
+};
+// priceEst = quotedPrice > 0 ? 0 : DIFFUSER_PRICE_TABLE[type]</span></td>
+        <td class="col-status status-match">Needs verify</td>
+      </tr>
+
+      <tr>
+        <td class="col-cell">H4</td>
+        <td class="col-desc">Frame Price ($)</td>
+        <td><span class="excel-formula">=IF($F4>0, 0, IF($E4="x", 25, 0))
+-- E col = "Sheet Rock" flag (x = yes)
+-- $25 frame charge if sheet rock AND not quoted</span></td>
+        <td><span class="js-fix">const framePrice = quotedPrice > 0 ? 0
+  : (sheetRock === 'x' ? 25 : 0);</span></td>
+        <td class="col-status status-missing">Needs check</td>
+      </tr>
+
+      <tr>
+        <td class="col-cell">I4</td>
+        <td class="col-desc">Misc Materials</td>
+        <td><span class="excel-formula">=SUM($F4:$H4) * $J$2
+-- J2 = 0.10 (10% misc rate)
+-- Base = quoted + priceEst + frame
+-- e.g. (0 + 102 + 25) × 0.10 = $12.70</span></td>
+        <td><span class="js-fix">const miscMat = (quotedPrice + priceEst + framePrice) * 0.10;
+// Rate = 10% (J2), NOT 20% like fans/louvers</span></td>
+        <td class="col-status status-bug">Verify rate</td>
+      </tr>
+
+      <tr>
+        <td class="col-cell">J4</td>
+        <td class="col-desc">Labor/Unit ($)</td>
+        <td><span class="excel-formula">=INDEX($S$4:$S$18,MATCH($D4,$R$4:$R$18,0),1) * $T$2
+-- T2 = 25 ($/hr rate)
+-- S col = install hours by type
+-- Install hours table:
+   Type               | Hours
+   Square >24×24      |  2.0  → $180/unit wait no...
+   Square =24×24      |  1.6  → $40/unit ($25/hr × 1.6 = $40)
+   Square >12×12      |  1.6  → $40
+   Square =12×12      |  1.5  → $37.50
+   Square <12×12      |  1.5  → $37.50
+   Slot =48"          |  2.5  → $62.50
+   Slot =24"          |  2.5  → $62.50
+   Other              |  1.6  → $40</span></td>
+        <td><span class="js-fix">const DIFFUSER_INSTALL_HRS = {
+  'Square >24*24 (>576 sq. in)':   2.0,
+  'Square =24*24 (576 sq. in)':    1.6,
+  'Square >12*12 (>144 sq. in)':   1.6,
+  'Square =12*12 (144 sq. in)':    1.5,
+  'Square <12*12 (<144 sq. in)':   1.5,
+  'Slot =48" (4\')':               2.5,
+  'Slot =24" (2\')':               2.5,
+  'Other':                          1.6,
+};
+const laborPerUnit = (DIFFUSER_INSTALL_HRS[type] || 1.6) * 25;</span></td>
+        <td class="col-status status-missing">Needs check</td>
+      </tr>
+
+      <tr>
+        <td class="col-cell">L4</td>
+        <td class="col-desc">Total Materials</td>
+        <td><span class="excel-formula">=IF(F4>0, SUM(F4,I4), SUM(G4:I4)) * K4
+-- If quoted: (quoted + misc) × count
+-- Else: (priceEst + frame + misc) × count
+-- E1 (8 units): (102+25+12.70)×8 = $1,117.60</span></td>
+        <td><span class="js-fix">const priceBase = quotedPrice > 0
+  ? (quotedPrice + miscMat)
+  : (priceEst + framePrice + miscMat);
+const totalMaterial = priceBase * count;</span></td>
+        <td class="col-status status-missing">Needs check</td>
+      </tr>
+
+      <tr>
+        <td class="col-cell">M4</td>
+        <td class="col-desc">Labor ($)</td>
+        <td><span class="excel-formula">=J4 * K4
+-- laborPerUnit × count
+-- E1: $40 × 8 = $320</span></td>
+        <td><span class="js-fix">const totalLabor = laborPerUnit * count;</span></td>
+        <td class="col-status status-missing">Needs check</td>
+      </tr>
+
+    </tbody>
+  </table>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════════════
+     FIX SUMMARY
+══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="summary">
+  <div class="section-title">⑤ Complete Fix Summary</div>
+
+  <table class="sum-table">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Module</th>
+        <th>Excel Cell/Column</th>
+        <th>What Excel Does</th>
+        <th>What Web App Does</th>
+        <th>Exact Error on Test Data</th>
+        <th>Fix Location</th>
+      </tr>
+    </thead>
+    <tbody>
+
+      <tr>
+        <td>1</td>
+        <td><strong>Metal Duct</strong></td>
+        <td>O col (Weight)</td>
+        <td>Weight = Area × <strong>1.249668 lbs/ft²</strong> (fixed constant AC5)</td>
+        <td>Weight from SMACNA physics per gauge: ~0.91 lbs/ft² (26ga) to ~1.15 lbs/ft² (24ga)</td>
+        <td class="r">–21% mat (small duct)<br>–6% mat (large duct)</td>
+        <td><code>ductCalculationEngine.js</code><br>Replace <code>calculateWeight()</code></td>
+      </tr>
+
+      <tr>
+        <td>2</td>
+        <td><strong>Metal Duct</strong></td>
+        <td>M col (Area/LF, round only)</td>
+        <td>π = <strong>3.14</strong> exactly</td>
+        <td><code>Math.PI</code> = 3.14159…</td>
+        <td class="y">~0.05% area diff<br>(minor)</td>
+        <td><code>ductCalculationEngine.js</code><br><code>calculateSurfaceArea()</code></td>
+      </tr>
+
+      <tr>
+        <td>3</td>
+        <td><strong>Fan Schedule</strong></td>
+        <td>K col (Penetration)</td>
+        <td>Roof=$100, Wall=$200 added to material</td>
+        <td>No penetration cost field exists</td>
+        <td class="r">$200 missing per fan<br>Total: −$1,200</td>
+        <td><code>calculationEngine.js</code><br>Add <code>penetrationType</code> field</td>
+      </tr>
+
+      <tr>
+        <td>4</td>
+        <td><strong>Fan Schedule</strong></td>
+        <td>L col (Misc)</td>
+        <td>Misc = (unit + other) × <strong>20%</strong></td>
+        <td>Misc = accessories × 3% (wrong base, wrong rate)</td>
+        <td class="r">EF-1: $0 vs $500<br>Total: −$2,960</td>
+        <td><code>calculationEngine.js</code><br>Fix misc base + rate</td>
+      </tr>
+
+      <tr>
+        <td>5</td>
+        <td><strong>Fan Schedule</strong></td>
+        <td>O col (Labor Table)</td>
+        <td>Lookup by <strong>Fan Type + Size Category</strong> (S/L/E) × $25/hr</td>
+        <td>CFM-based hours lookup — wrong metric entirely</td>
+        <td class="r">EF-1: $175 vs $350<br>(−50% labor)</td>
+        <td><code>calculationEngine.js</code><br>Replace <code>FAN_LABOR_HOURS</code> with type+size table</td>
+      </tr>
+
+      <tr>
+        <td>6</td>
+        <td><strong>Fan Schedule</strong></td>
+        <td>P col (Labor Final)</td>
+        <td>Manual labor input overrides table when &gt;0</td>
+        <td>No manual labor override field</td>
+        <td class="y">Functional gap</td>
+        <td><code>calculationEngine.js</code><br>Add <code>laborInput</code> field</td>
+      </tr>
+
+      <tr>
+        <td>7</td>
+        <td><strong>Louvers &amp; FD</strong></td>
+        <td>L col (Misc)</td>
+        <td>Misc = (unit + other) × <strong>20%</strong></td>
+        <td>Misc = totalMat × 3%</td>
+        <td class="r">L-1: $60 vs $400<br>(−14% material)</td>
+        <td><code>calculationEngine.js</code><br>Fix <code>calcLouverDamperUnit()</code></td>
+      </tr>
+
+      <tr>
+        <td>8</td>
+        <td><strong>Louvers &amp; FD</strong></td>
+        <td>O col (Labor Table)</td>
+        <td>Lookup by <strong>Type + Size Category</strong>: Hurricane/StdAlum × S/L/E × $25</td>
+        <td>Face area × laborHrsPerSqFt for generic OA Louver type — wrong model entirely</td>
+        <td class="r">L-1: $23 vs $350<br>(−93% labor)</td>
+        <td><code>calculationEngine.js</code><br>Replace entire louver model with type+size table</td>
+      </tr>
+
+      <tr>
+        <td>9</td>
+        <td><strong>Louvers &amp; FD</strong></td>
+        <td>P col (Labor Final)</td>
+        <td>Manual override wins when &gt;0</td>
+        <td>No manual labor override</td>
+        <td class="y">Functional gap</td>
+        <td><code>calculationEngine.js</code><br>Add <code>laborInput</code> field</td>
+      </tr>
+
+      <tr>
+        <td>10</td>
+        <td><strong>Diffuser</strong></td>
+        <td>I col (Misc)</td>
+        <td>Misc = (quoted + est + frame) × <strong>10%</strong></td>
+        <td>Unknown — needs verification against engine</td>
+        <td class="y">Needs check</td>
+        <td><code>calculationEngine.js</code><br>Verify <code>calcDiffuserUnit()</code></td>
+      </tr>
+
+      <tr>
+        <td>11</td>
+        <td><strong>Diffuser</strong></td>
+        <td>H col (Frame)</td>
+        <td>$25 frame charge when "Sheet Rock" flag = "x" AND no quoted price</td>
+        <td>Unknown — needs verification</td>
+        <td class="y">Needs check</td>
+        <td><code>calculationEngine.js</code></td>
+      </tr>
+
+    </tbody>
+  </table>
+
+  <div style="margin-top:24px;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px 20px">
+    <h4 style="color:#e6edf3;margin-bottom:10px">Items Confirmed Correct (no fix needed)</h4>
+    <table class="sum-table">
+      <tr><td>✅</td><td>Duct length calc (J col): scale × measurement</td><td><code>linearFeet</code> passed directly ✓</td></tr>
+      <tr><td>✅</td><td>Duct area geometry (M/N cols): 2(W+H)/12 × LF</td><td><code>calculateSurfaceArea()</code> ✓</td></tr>
+      <tr><td>✅</td><td>Duct insulation cost (R col): area × $1.25</td><td><code>insulationPerSqFt = 1.25</code> ✓</td></tr>
+      <tr><td>✅</td><td>Duct flex material (S col): 5ft × rate × 1.25</td><td>Exact match ✓</td></tr>
+      <tr><td>✅</td><td>Duct VD cost (T col): $25 if VD and no offtake</td><td>Exact match ✓</td></tr>
+      <tr><td>✅</td><td>Duct incidentals rates (U/V cols): 20% sq, 25% round</td><td>Exact match ✓</td></tr>
+      <tr><td>✅</td><td>Duct labor (X col): ROUNDUP(lf×23 + lf×4ins + offtake + VD, -1)</td><td>Exact match ✓</td></tr>
+      <tr><td>✅</td><td>Gauge selection breakpoints: 12/30/42/60"</td><td>Correct per SMACNA ✓</td></tr>
+      <tr><td>✅</td><td>Fan/Louver rate: $25/hr</td><td>Correct ✓</td></tr>
+      <tr><td>✅</td><td>Fan Mat+Labor total: M+P</td><td>Correct structure ✓</td></tr>
+    </table>
+  </div>
+</div>
+
+</div>
+
+<footer>
+  Formula source: Bid_Template_Commercial_v2.6.xlsx (openpyxl data_only=False, all cells read verbatim)<br>
+  Engine source: backend/engine/ductCalculationEngine.js + calculationEngine.js<br>
+  Test data: 17 duct runs · 6 fans · 3 louvers · 7 diffusers from the sample project
+</footer>
+
+</body>
+</html>

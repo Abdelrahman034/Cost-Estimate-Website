@@ -13,19 +13,15 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// ─── PROJECTS (SQLite) ────────────────────────────────────────────────────────
+// ─── PROJECTS (legacy shim — use projectsApi from projectsApi.js instead) ────
+// Kept only for any remaining direct callers; new code should import from
+// @services/projectsApi which uses the canonical REST endpoints.
 export const projectsApi = {
-  getAll:  ()           => api.get('/projects'),
-  getById: (id)         => api.get(`/projects/${id}`),
-  create:  (data)       => api.post('/projects', data),
-  update:  (id, data)   => api.put(`/projects/${id}`, data),
-  delete:  (id)         => api.delete(`/projects/${id}`),
-
-  // Estimates
-  saveEstimate: (projectId, module, rows, prices, totals) =>
-    api.post(`/projects/${projectId}/estimates/${module}`, { rows, prices, totals }),
-  loadEstimate: (projectId, module) =>
-    api.get(`/projects/${projectId}/estimates/${module}`),
+  getAll:  ()         => api.get('/projects'),
+  getById: (id)       => api.get(`/projects/${id}`),
+  create:  (data)     => api.post('/projects', data),
+  update:  (id, data) => api.put(`/projects/${id}`, data),
+  delete:  (id)       => api.delete(`/projects/${id}`),
 };
 
 // ─── PRICES ───────────────────────────────────────────────────────────────────
@@ -128,6 +124,48 @@ export const copperApi = {
 
   /** Admin: restore all calibrated defaults (Grainger $4.25/lb baseline). */
   restoreDefaults: () => api.post('/copper-pricing/restore-defaults'),
+};
+
+// ─── PROJECT CHANGELOG ────────────────────────────────────────────────────────
+export const changelogApi = {
+  list:   (projectId, limit = 50) => api.get(`/projects/${projectId}/changelog?limit=${limit}`),
+  add:    (projectId, entry)      => api.post(`/projects/${projectId}/changelog`, entry),
+};
+
+// ─── PROJECT SCENARIOS (named alternate bids) ─────────────────────────────────
+export const scenariosApi = {
+  list:   (projectId)       => api.get(`/projects/${projectId}/scenarios`),
+  create: (projectId, data) => api.post(`/projects/${projectId}/scenarios`, data),
+  update: (projectId, id, data) => api.patch(`/projects/${projectId}/scenarios/${id}`, data),
+  delete: (projectId, id)   => api.delete(`/projects/${projectId}/scenarios/${id}`),
+};
+
+// ─── COMPANY (admin) ──────────────────────────────────────────────────────────
+export const companyApi = {
+  get:          ()           => api.get('/company'),
+  update:       (data)       => api.patch('/company', data),
+
+  listUsers:    ()           => api.get('/company/users'),
+  updateUser:   (id, data)   => api.patch(`/company/users/${id}`, data),
+  deleteUser:   (id)         => api.delete(`/company/users/${id}`),
+
+  listInvites:  ()           => api.get('/company/invites'),
+  createInvite: (data)       => api.post('/company/invites', data),
+  revokeInvite: (id)         => api.delete(`/company/invites/${id}`),
+};
+
+// ─── METAL DUCT CALCULATIONS ─────────────────────────────────────────────────
+// Sends duct rows + pricing settings to the backend engine.
+// The server runs all cost math and returns { rows, totals, byMaterial }.
+export const ductApi = {
+  /**
+   * Calculate a batch of duct rows on the server.
+   * @param {Array}  rows   – array of row objects (size, linearFeet, flags, etc.)
+   * @param {Object} prices – pricing overrides (sheetMetalCostPerLb, laborRate, etc.)
+   * @returns {Promise<{ rows, totals, byMaterial }>}
+   */
+  calculate: (rows, prices = {}) =>
+    api.post('/calculate', { module: 'METAL_DUCT', rows, settings: prices }),
 };
 
 // ─── ANALYTICS ───────────────────────────────────────────────────────────────

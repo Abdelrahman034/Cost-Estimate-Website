@@ -45,6 +45,28 @@ export const DEFAULT_GRD_RATE    = 25;   // $/hr  — T2 in Excel ("Rate $/hr")
 export const DEFAULT_MISC_PCT    = 0.10; // 10%   — J2 in Excel ("Misc Materials")
 export const DEFAULT_FRAME_COST  = 25;   // $      — H column when sheetrock = true
 
+// ─── HELPERS ─────────────────────────────────────────────────────────────────
+
+/**
+ * Build a default install hours overrides map seeded from DIFFUSER_TYPES.
+ * Shape: { [typeId]: installHrs }
+ */
+export function buildDefaultInstallHrsOverrides() {
+  const out = {};
+  for (const t of DIFFUSER_TYPES) {
+    out[t.id] = t.installHrs;
+  }
+  return out;
+}
+
+/**
+ * Resolve effective install hours for a type, respecting user overrides.
+ */
+export function resolveInstallHrs(typeId, installHrsOverrides) {
+  if (installHrsOverrides?.[typeId] != null) return installHrsOverrides[typeId];
+  return getDiffuserType(typeId)?.installHrs ?? 1.6;
+}
+
 // ─── SINGLE ROW CALCULATION ──────────────────────────────────────────────────
 /**
  * @param {Object} row
@@ -72,10 +94,11 @@ export function calculateDiffuserRow(row, settings = {}) {
   } = row;
 
   const {
-    grdRate      = DEFAULT_GRD_RATE,
-    miscPct      = DEFAULT_MISC_PCT,
-    frameCost    = DEFAULT_FRAME_COST,
-    marketPrices = {},
+    grdRate             = DEFAULT_GRD_RATE,
+    miscPct             = DEFAULT_MISC_PCT,
+    frameCost           = DEFAULT_FRAME_COST,
+    marketPrices        = {},
+    installHrsOverrides = null,
   } = settings;
 
   const type = getDiffuserType(typeId);
@@ -125,7 +148,9 @@ export function calculateDiffuserRow(row, settings = {}) {
   const miscMat = basePriceForMisc * miscPct;
 
   // ── J: labor per unit = installHrs × grdRate ─────────────────────────────
-  const laborPerUnit = type.installHrs * grdRate;
+  // resolveInstallHrs respects per-type overrides from settings panel
+  const effectiveInstallHrs = resolveInstallHrs(typeId, installHrsOverrides);
+  const laborPerUnit = effectiveInstallHrs * grdRate;
 
   // ── L: total material = IF(F>0, (F+I), (G+H+I)) × qty ───────────────────
   const unitMaterialCost = effectiveUnitPrice + framePrice + miscMat;
@@ -143,6 +168,7 @@ export function calculateDiffuserRow(row, settings = {}) {
     estUnitPrice:     Math.round(estUnitPrice   * 100) / 100,
     framePrice:       Math.round(framePrice      * 100) / 100,
     miscMat:          Math.round(miscMat         * 100) / 100,
+    installHrs:       effectiveInstallHrs,
     laborPerUnit:     Math.round(laborPerUnit    * 100) / 100,
     effectiveUnitPrice: Math.round(effectiveUnitPrice * 100) / 100,
     unitMaterialCost: Math.round(unitMaterialCost * 100) / 100,
@@ -163,12 +189,12 @@ export function calculateDiffuserBatch(rows, settings = {}) {
     ...calculateDiffuserRow(row, settings),
   }));
 
-  const rawTotalMat   = results.reduce((s, r) => s + r.totalMat,   0);
-  const rawTotalLabor = results.reduce((s, r) => s + r.totalLabor, 0);
-  const rawTotal      = results.reduce((s, r) => s + r.total,      0);
-  const totalQty      = results.reduce((s, r) => s + r.qty,        0);
+  const rawTotalMat   = results.reduce((s, r) => s + r.totalMat,                    0);
+  const rawTotalLabor = results.reduce((s, r) => s + r.totalLabor,                  0);
+  const rawTotal      = results.reduce((s, r) => s + r.total,                       0);
+  const totalQty      = results.reduce((s, r) => s + r.qty,                         0);
+  const totalHours    = results.reduce((s, r) => s + (r.installHrs || 0) * (r.qty || 0), 0);
 
-  // Excel M24 = ROUND(SUM(M),-1), N24 = ROUND(SUM(N),-1)
   const roundTo10 = (v) => Math.round(v / 10) * 10;
 
   return {
@@ -178,6 +204,7 @@ export function calculateDiffuserBatch(rows, settings = {}) {
       totalMat:   Math.round(rawTotalMat   * 100) / 100,
       totalLabor: roundTo10(rawTotalLabor),
       total:      roundTo10(rawTotal),
+      totalHours: Math.round(totalHours    * 10)  / 10,
     },
   };
 }

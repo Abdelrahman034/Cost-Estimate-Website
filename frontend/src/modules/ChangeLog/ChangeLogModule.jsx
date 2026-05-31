@@ -3,22 +3,27 @@
  * Tracks what changed between estimate versions — a huge advantage over Excel.
  *
  * Features:
- *   • Auto-snapshot: reads module totals from localStorage and records them
- *     with a timestamp whenever you click "Record Snapshot"
+ *   • Auto-snapshot: reads module totals and records them with a timestamp
+ *     whenever you click "Record Snapshot"
  *   • Named snapshots: annotate each snapshot with a note (e.g. "After VE round")
  *   • Diff view: side-by-side comparison of any two snapshots, showing + / - changes
  *   • CSV Export of the change history
  *   • Delete individual snapshots
  *
- * Storage: localStorage key "estimate_changelog"
+ * Storage:
+ *   - When opened inside a project (projectId in URL): persists to DB via
+ *     POST /api/projects/:projectId/changelog  (action: 'estimate_snapshot')
+ *   - Otherwise: falls back to localStorage key "estimate_changelog"
  */
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Clock, Plus, Trash2, Download, ChevronDown, ChevronUp,
-  TrendingUp, TrendingDown, Minus, BarChart3, AlertCircle,
+  TrendingUp, TrendingDown, Minus, BarChart3, AlertCircle, Loader2,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { readAllModuleTotals } from '@utils/projectTotals';
+import { changelogApi } from '@services/api';
 
 const LS_KEY = 'estimate_changelog';
 
@@ -26,13 +31,26 @@ const LS_KEY = 'estimate_changelog';
 const fmt   = (n) => (n || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 const fmtTs = (ts) => new Date(ts).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 
-function loadLog() {
+function loadLocalLog() {
   try { return JSON.parse(localStorage.getItem(LS_KEY) || '[]'); }
   catch { return []; }
 }
 
-function saveLog(log) {
+function saveLocalLog(log) {
   localStorage.setItem(LS_KEY, JSON.stringify(log));
+}
+
+/** Convert a DB ProjectChangelog entry → snapshot shape used by UI */
+function normalizeEntry(entry) {
+  const detail = entry.detail ?? {};
+  return {
+    id:      entry.id,
+    note:    detail.note ?? entry.description ?? 'Snapshot',
+    savedAt: new Date(entry.createdAt).getTime(),
+    modules: Array.isArray(detail.modules) ? detail.modules : [],
+    // flag so we know it lives in DB (used by delete — currently no delete endpoint for changelog)
+    fromDb:  true,
+  };
 }
 
 // ─── Delta badge ──────────────────────────────────────────────────────────────
@@ -40,7 +58,7 @@ function Delta({ value }) {
   if (!value || value === 0) return <span className="text-xs text-gray-400 font-medium">—</span>;
   const pos = value > 0;
   const Icon = pos ? TrendingUp : TrendingDown;
-  const color = pos ? 'text-red-600' : 'text-green-600'; // up is bad (more cost), down is good
+  const color = pos ? 'text-red-600' : 'text-green-600'; // up = more cost = bad
   return (
     <span className={`flex items-center gap-0.5 text-xs font-semibold ${color}`}>
       <Icon size={12} />
@@ -77,6 +95,7 @@ function SnapshotCard({ snap, prev, onDelete, selected, onSelect }) {
             {fmtTs(snap.savedAt)}
             <span className="text-gray-300">·</span>
             {snap.modules.filter(m => m.totalCost > 0).length} active module{snap.modules.filter(m => m.totalCost > 0).length !== 1 ? 's' : ''}
+            {snap.fromDb && <span className="text-gray-400 italic">(saved)</span>}
           </div>
         </div>
         <div className="text-right shrink-0">
@@ -90,13 +109,15 @@ function SnapshotCard({ snap, prev, onDelete, selected, onSelect }) {
           >
             {expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
           </button>
-          <button
-            onClick={onDelete}
-            className="text-gray-300 hover:text-red-500 transition-colors"
-            title="Delete snapshot"
-          >
-            <Trash2 size={14} />
-          </button>
+          {onDelete && (
+            <button
+              onClick={onDelete}
+              className="text-gray-300 hover:text-red-500 transition-colors"
+              title="Delete snapshot"
+            >
+              <Trash2 size={14} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -218,34 +239,94 @@ function DiffTable({ snapA, snapB }) {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function ChangeLogModule({ projectInfo }) {
-  const [log,       setLog]       = useState(() => loadLog());
-  const [note,      setNote]      = useState('');
-  const [selected,  setSelected]  = useState([]); // up to 2 snapshot IDs for compare
+  const [searchParams] = useSearchParams();
+  const projectId = searchParams.get('projectId') ?? projectInfo?.id ?? null;
 
-  const persist = (newLog) => { setLog(newLog); saveLog(newLog); };
+  const [log,      setLog]      = useState([]);
+  const [loading,  setLoading]  = useState(!!projectId);
+  const [saving,   setSaving]   = useState(false);
+  const [note,     setNote]     = useState('');
+  const [selected, setSelected] = useState([]); // up to 2 snapshot IDs for compare
 
-  // Record a snapshot
-  const recordSnapshot = useCallback(() => {
+  // ── Load from DB or localStorage ────────────────────────────────────────────
+  useEffect(() => {
+    if (!projectId) {
+      setLog(loadLocalLog());
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    changelogApi.list(projectId, 100)
+      .then(res => {
+        const entries = (res.data ?? [])
+          .filter(e => e.action === 'estimate_snapshot')
+          .map(normalizeEntry);
+        setLog(entries);
+      })
+      .catch(() => {
+        // Fallback to localStorage on error
+        setLog(loadLocalLog());
+        toast.error('Could not load changelog from server — showing local data');
+      })
+      .finally(() => setLoading(false));
+  }, [projectId]);
+
+  // ── Record a snapshot ────────────────────────────────────────────────────────
+  const recordSnapshot = useCallback(async () => {
     const modules = readAllModuleTotals();
     const hasData = modules.some(m => m.totalCost > 0);
     if (!hasData) {
       toast.error('No module data found — open an estimating module and enter some values first.');
       return;
     }
-    const snap = {
-      id:      `snap-${Date.now()}`,
-      note:    note.trim() || `Snapshot ${log.length + 1}`,
-      savedAt: Date.now(),
-      modules,
-    };
-    const updated = [snap, ...log];
-    persist(updated);
-    setNote('');
-    toast.success(`Snapshot "${snap.note}" recorded`);
-  }, [note, log]);
 
+    const snapNote = note.trim() || `Snapshot ${log.length + 1}`;
+
+    if (projectId) {
+      // Save to DB
+      setSaving(true);
+      try {
+        const res = await changelogApi.add(projectId, {
+          action:      'estimate_snapshot',
+          description: snapNote,
+          detail:      { note: snapNote, modules },
+        });
+        const newSnap = normalizeEntry(res.data);
+        setLog(prev => [newSnap, ...prev]);
+        setNote('');
+        toast.success(`Snapshot "${snapNote}" saved`);
+      } catch {
+        toast.error('Failed to save snapshot');
+      } finally {
+        setSaving(false);
+      }
+    } else {
+      // Local fallback
+      const snap = {
+        id:      `snap-${Date.now()}`,
+        note:    snapNote,
+        savedAt: Date.now(),
+        modules,
+      };
+      const updated = [snap, ...log];
+      setLog(updated);
+      saveLocalLog(updated);
+      setNote('');
+      toast.success(`Snapshot "${snapNote}" recorded`);
+    }
+  }, [note, log, projectId]);
+
+  // Delete only works for local snapshots (no DELETE endpoint for changelog entries)
   const deleteSnap = useCallback((id) => {
-    persist(log.filter(s => s.id !== id));
+    const snap = log.find(s => s.id === id);
+    if (snap?.fromDb) {
+      toast('DB changelog entries cannot be deleted — they are permanent audit records.', { icon: 'ℹ️' });
+      return;
+    }
+    const updated = log.filter(s => s.id !== id);
+    setLog(updated);
+    saveLocalLog(updated);
     setSelected(sel => sel.filter(sid => sid !== id));
   }, [log]);
 
@@ -258,10 +339,12 @@ export default function ChangeLogModule({ projectInfo }) {
   };
 
   const clearAll = () => {
-    if (!window.confirm('Delete all snapshots?')) return;
-    persist([]);
+    if (!window.confirm('Clear all local snapshots? (DB entries are preserved)')) return;
+    const localOnly = log.filter(s => s.fromDb);
+    setLog(localOnly);
+    saveLocalLog([]);
     setSelected([]);
-    toast('All snapshots cleared', { icon: '🗑️' });
+    toast('Local snapshots cleared', { icon: '🗑️' });
   };
 
   const exportCsv = () => {
@@ -282,7 +365,7 @@ export default function ChangeLogModule({ projectInfo }) {
     toast.success('Change log exported');
   };
 
-  // Comparison snapshots (check both orderings)
+  // Comparison snapshots
   const snapA = selected[0] ? log.find(s => s.id === selected[0]) : null;
   const snapB = selected[1] ? log.find(s => s.id === selected[1]) : null;
 
@@ -294,6 +377,7 @@ export default function ChangeLogModule({ projectInfo }) {
           <h1 className="text-2xl font-bold text-gray-900">Change Log</h1>
           <p className="text-sm text-gray-500 mt-1">
             Record estimate snapshots and compare any two versions — see exactly what changed and by how much.
+            {projectId && <span className="text-blue-500 ml-1">Snapshots are saved to this project.</span>}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -302,7 +386,9 @@ export default function ChangeLogModule({ projectInfo }) {
               <button onClick={exportCsv} className="btn-secondary flex items-center gap-2 text-sm">
                 <Download size={14} /> Export CSV
               </button>
-              <button onClick={clearAll} className="btn-secondary text-red-500 text-sm">Clear All</button>
+              {!projectId && (
+                <button onClick={clearAll} className="btn-secondary text-red-500 text-sm">Clear All</button>
+              )}
             </>
           )}
         </div>
@@ -319,15 +405,16 @@ export default function ChangeLogModule({ projectInfo }) {
             type="text"
             value={note}
             onChange={e => setNote(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && recordSnapshot()}
+            onKeyDown={e => e.key === 'Enter' && !saving && recordSnapshot()}
             placeholder="Optional note (e.g. 'After VE round', 'Rev 2 — owner removed 3 RTUs')"
             className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
           />
           <button
             onClick={recordSnapshot}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+            disabled={saving}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
           >
-            <Clock size={14} />
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <Clock size={14} />}
             Record Snapshot
           </button>
         </div>
@@ -336,8 +423,15 @@ export default function ChangeLogModule({ projectInfo }) {
         </p>
       </div>
 
+      {/* Loading state */}
+      {loading && (
+        <div className="flex items-center justify-center py-12 text-gray-400">
+          <Loader2 size={24} className="animate-spin mr-2" /> Loading change log…
+        </div>
+      )}
+
       {/* Comparison hint */}
-      {log.length >= 2 && (
+      {!loading && log.length >= 2 && (
         <div className="flex items-center gap-2 text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5">
           <AlertCircle size={15} className="shrink-0 text-blue-500" />
           Select two snapshots using the checkboxes to compare them side-by-side.
@@ -356,13 +450,15 @@ export default function ChangeLogModule({ projectInfo }) {
       {selected.length === 2 && <DiffTable snapA={snapA} snapB={snapB} />}
 
       {/* Snapshot list */}
-      {log.length === 0 ? (
+      {!loading && log.length === 0 && (
         <div className="text-center py-12 text-gray-400">
           <Clock size={32} className="mx-auto mb-3 opacity-30" />
           <p className="text-sm">No snapshots yet.</p>
           <p className="text-xs mt-1">Fill in your estimates, then click "Record Snapshot" to capture the current state.</p>
         </div>
-      ) : (
+      )}
+
+      {!loading && log.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">
@@ -379,7 +475,7 @@ export default function ChangeLogModule({ projectInfo }) {
               key={snap.id}
               snap={snap}
               prev={log[i + 1] || null}
-              onDelete={() => deleteSnap(snap.id)}
+              onDelete={snap.fromDb ? null : () => deleteSnap(snap.id)}
               selected={selected.includes(snap.id)}
               onSelect={() => toggleSelect(snap.id)}
             />

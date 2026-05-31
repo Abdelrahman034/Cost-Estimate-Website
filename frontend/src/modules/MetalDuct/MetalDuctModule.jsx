@@ -1,7 +1,7 @@
-import React, { useState, useCallback, useContext, useEffect } from 'react';
+import React, { useState, useCallback, useContext, useEffect, useRef } from 'react';
 import { Plus, Trash2, Download, Info, Play, Settings2 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { calculateDuctBatch } from '@utils/ductCalculations';
+import { ductApi } from '@services/api';
 import DuctRow from './DuctRow';
 import DuctTotals from './DuctTotals';
 import PriceSettings from './PriceSettings';
@@ -22,6 +22,7 @@ const newRow = (id) => ({
   id,
   size: '',
   linearFeet: '',
+  ductMaterial: 'galvanized',
   ductType: 'supply',
   fittings: [],
   insulated: false,
@@ -39,6 +40,7 @@ const TEST_ROWS = [
     id: 'test-row-1',
     size: '24x12',
     linearFeet: 18,
+    ductMaterial: 'galvanized',
     ductType: 'supply',
     fittings: [],
     insulated: true,
@@ -54,6 +56,7 @@ const TEST_ROWS = [
     id: 'test-row-2',
     size: '18x10',
     linearFeet: 12,
+    ductMaterial: 'galvanized',
     ductType: 'return',
     fittings: [],
     insulated: false,
@@ -69,6 +72,7 @@ const TEST_ROWS = [
     id: 'test-row-3',
     size: '12',
     linearFeet: 10,
+    ductMaterial: 'galvanized',
     ductType: 'exhaust',
     fittings: [],
     insulated: false,
@@ -84,6 +88,7 @@ const TEST_ROWS = [
     id: 'test-row-4',
     size: '10x8',
     linearFeet: 8,
+    ductMaterial: 'galvanized',
     ductType: 'oa',
     fittings: [],
     insulated: true,
@@ -112,11 +117,12 @@ export default function MetalDuctModule() {
 
   const { projectId, projectName, loadEstimate, saveEstimate, saving, lastSaved, saveError } = useEstimate('METAL_DUCT');
 
-  // ── Auto-save rows ─────────────────────────────────────────────────────────
+  // ── Auto-save rows (rowsJson only — totals saved by auto-calc effect below) ─
   const { markAsLoaded } = useAutoSave(
     rows,
     () => saveEstimate({ rowsJson: rows }),
     !!projectId,
+    500, // short delay — auto-calc fires at 2s and saves everything including totals
   );
 
   // ── Auto-save duct prices when they change (project layer only) ───────────
@@ -133,6 +139,8 @@ export default function MetalDuctModule() {
         if (est?.rowsJson && Array.isArray(est.rowsJson) && est.rowsJson.length > 0) {
           setRows(est.rowsJson);
           markAsLoaded(est.rowsJson); // prevent auto-save of just-loaded data
+          // Auto-calculate so results are visible immediately on navigation return
+          setTimeout(() => calculateFromRows(est.rowsJson), 100);
         } else {
           markAsLoaded(null); // no DB data yet — mark load complete
         }
@@ -150,26 +158,60 @@ export default function MetalDuctModule() {
     }
   }, [loadEstimate, projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Derive the column label and whether to show the "= X.XX ft" hint
-  const unitLabel = effectivePrices.measureUnit ?? 'ft';
+  // ── Debounced auto-calculate on row changes ────────────────────────────────
+  const autoCalcTimer = useRef(null);
+  useEffect(() => {
+    const valid = rows.filter((r) => r.size && r.linearFeet);
+    if (valid.length === 0) { setResults(null); return; }
+    if (autoCalcTimer.current) clearTimeout(autoCalcTimer.current);
+    autoCalcTimer.current = setTimeout(async () => {
+      const result = await calculateFromRows(rows);
+      if (result && projectId) {
+        saveEstimate({
+          rowsJson:         rows,
+          totalMaterial:    result.totals.materialCost,
+          totalLabor:       result.totals.laborCost,
+          totalCost:        result.totals.totalCost,
+          totalHours:       result.totals.laborHours,
+          totalsJson:       { totalWeight: result.totals.weight, totalSurfaceArea: result.totals.surfaceArea },
+        });
+      }
+    }, 2000);
+    return () => clearTimeout(autoCalcTimer.current);
+  }, [rows, projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const UNIT_TO_FT = { ft: 1.0, in: 1 / 12, m: 1 / 0.3048, cm: 1 / 30.48, mm: 1 / 304.8 };
+  const unitLabel = effectivePrices.measureUnit ?? 'ft';
   const scaleFactor = UNIT_TO_FT[unitLabel] ?? 1.0;
   const showScaleHint = unitLabel !== 'ft';
-  const [results, setResults] = useState(null);
 
-  const calculateFromRows = useCallback((sourceRows) => {
+  const handleUnitChange = (unit) => {
+    setPrices({ ...prices, measureUnit: unit });
+  };
+
+  const [results, setResults] = useState(null);
+  const [calculating, setCalculating] = useState(false);
+
+  // All cost math runs on the backend. The frontend only handles UI state.
+  const calculateFromRows = useCallback(async (sourceRows) => {
     const validRows = sourceRows.filter((r) => r.size && r.linearFeet);
     if (validRows.length === 0) {
       toast.error('Add at least one duct size and linear feet');
       return null;
     }
 
-    const result = calculateDuctBatch(validRows, effectivePrices);
-    // Profit is intentionally not applied here. Profit/markup will be applied globally
-    // in a separate page so this module only returns direct costs.
-    setResults(result);
-    toast.success(`Calculated ${validRows.length} duct runs (profit excluded)`);
-    return result;
+    setCalculating(true);
+    try {
+      const { data: result } = await ductApi.calculate(validRows, effectivePrices);
+      // Profit/markup is applied globally in a separate page — not here.
+      setResults(result);
+      return result;
+    } catch (err) {
+      toast.error('Calculation error: ' + (err.response?.data?.error || err.message));
+      return null;
+    } finally {
+      setCalculating(false);
+    }
   }, [effectivePrices]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleRowChange = useCallback((id, field, value) => {
@@ -193,19 +235,20 @@ export default function MetalDuctModule() {
     setRows((prev) => prev.filter((r) => r.id !== id));
   };
 
-  const calculate = () => {
-    try {
-      const result = calculateFromRows(rows);
-      if (result && projectId) {
-        saveEstimate({
-          rowsJson:      rows,
-          totalMaterial: result.totals.materialCost,
-          totalLabor:    result.totals.laborCost,
-          totalCost:     result.totals.totalCost,
-        });
-      }
-    } catch (err) {
-      toast.error('Calculation error: ' + err.message);
+  const calculate = async () => {
+    const result = await calculateFromRows(rows);
+    if (result && projectId) {
+      saveEstimate({
+        rowsJson:      rows,
+        totalMaterial: result.totals.materialCost,
+        totalLabor:    result.totals.laborCost,
+        totalCost:     result.totals.totalCost,
+        totalHours:    result.totals.laborHours,
+        totalsJson:    {
+          totalWeight:      result.totals.weight,
+          totalSurfaceArea: result.totals.surfaceArea,
+        },
+      });
     }
   };
 
@@ -272,6 +315,7 @@ export default function MetalDuctModule() {
                   }
                 } catch (_) { toast.error('Could not load demo data'); }
               }}
+              disabled={calculating}
               className="btn-secondary flex items-center gap-2 text-blue-600 border-blue-200 bg-blue-50 hover:bg-blue-100"
             >
               <Play size={16} />
@@ -291,8 +335,8 @@ export default function MetalDuctModule() {
               Export CSV
             </button>
           )}
-          <button onClick={calculate} className="btn-primary flex items-center gap-2 px-6">
-            Calculate
+          <button onClick={calculate} disabled={calculating} className="btn-primary flex items-center gap-2 px-6">
+            {calculating ? 'Calculating…' : 'Calculate & Save'}
           </button>
         </div>
       </div>
@@ -324,16 +368,31 @@ export default function MetalDuctModule() {
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 w-32">Size</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 w-24">
-                  Lin. ({unitLabel})
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 w-36">
+                  <div className="flex items-center gap-2">
+                    <span>Lin. Length</span>
+                    <select
+                      className="text-xs font-normal border border-gray-300 rounded px-1 py-0.5 bg-white text-gray-700 cursor-pointer"
+                      value={unitLabel}
+                      onChange={(e) => handleUnitChange(e.target.value)}
+                      title="Select unit of measurement for all rows"
+                    >
+                      <option value="ft">ft</option>
+                      <option value="in">in</option>
+                      <option value="m">m</option>
+                      <option value="cm">cm</option>
+                      <option value="mm">mm</option>
+                    </select>
+                  </div>
                   {showScaleHint && (
-                    <div className="text-xs font-normal text-blue-500">
-                      ×{scaleFactor} → ft
+                    <div className="text-xs font-normal text-blue-500 mt-0.5">
+                      auto-convert → ft
                     </div>
                   )}
                 </th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 w-28">Application</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 w-20">Gauge</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 w-32">Material</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 w-24">Gauge / mm</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 w-24">Sq Ft</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 w-24">Labor Hrs</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 w-28">Material $</th>
@@ -381,7 +440,7 @@ export default function MetalDuctModule() {
 
       {/* Totals */}
       {results && (
-        <DuctTotals totals={results.totals} />
+        <DuctTotals totals={results.totals} byMaterial={results.byMaterial} />
       )}
 
       {/* Clear */}

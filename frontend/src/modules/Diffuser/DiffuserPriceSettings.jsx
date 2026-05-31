@@ -1,8 +1,13 @@
 import React, { useState } from 'react';
-import { X, RefreshCw, Globe, PenLine } from 'lucide-react';
+import { X, RefreshCw, Globe, PenLine, RotateCcw, Info } from 'lucide-react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
-import { DIFFUSER_TYPES, DEFAULT_GRD_RATE, DEFAULT_MISC_PCT } from '@utils/diffuserCalculations';
+import {
+  DIFFUSER_TYPES,
+  DEFAULT_GRD_RATE,
+  DEFAULT_MISC_PCT,
+  buildDefaultInstallHrsOverrides,
+} from '@utils/diffuserCalculations';
 
 // Representative US market prices from Greenheck / Titus / Price Industries
 // Used as seed values when the user first switches to Market mode.
@@ -75,10 +80,15 @@ export default function DiffuserPriceSettings({
   };
 
   const handleSave = () => {
+    // Ensure installHrsOverrides is always present when saving
+    const toSave = {
+      ...draft,
+      installHrsOverrides: draft.installHrsOverrides ?? buildDefaultInstallHrsOverrides(),
+    };
     if (projectMode) {
-      onProjectSave(draft);
+      onProjectSave(toSave);
     } else {
-      onSettingsChange(draft);
+      onSettingsChange(toSave);
       toast.success('Diffuser settings saved');
     }
     onClose();
@@ -225,6 +235,82 @@ export default function DiffuserPriceSettings({
             />
             <p className="text-xs text-gray-400 mt-1">H col — added when sheetrock ceiling</p>
           </div>
+        </div>
+      </div>
+
+      {/* ── Install Hours Overrides ── */}
+      <div className="mb-5">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-1.5">
+            <Info size={13} className="text-blue-500" />
+            <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+              Install Hours per Type — edit to override Excel default
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setDraft((prev) => ({
+              ...prev,
+              installHrsOverrides: buildDefaultInstallHrsOverrides(),
+            }))}
+            className="text-xs text-gray-400 hover:text-blue-600 flex items-center gap-1 underline"
+          >
+            <RotateCcw size={11} /> Reset all to Excel
+          </button>
+        </div>
+        <p className="text-[10px] text-gray-400 mb-3">
+          Cost = hours × GRD rate (${draft.grdRate ?? DEFAULT_GRD_RATE}/hr).
+          Orange = changed from Excel default.
+        </p>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {DIFFUSER_TYPES.map((type) => {
+            const defaults = buildDefaultInstallHrsOverrides();
+            const currHrs = draft.installHrsOverrides?.[type.id] ?? type.installHrs;
+            const isOverridden = currHrs !== type.installHrs;
+            const cost = currHrs * (draft.grdRate ?? DEFAULT_GRD_RATE);
+            return (
+              <div key={type.id}>
+                <label className="label text-[11px]">{type.label}</label>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    className={`input text-xs ${isOverridden ? 'border-orange-400 bg-orange-50 text-orange-700 font-semibold' : ''}`}
+                    value={currHrs}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value);
+                      setDraft((prev) => ({
+                        ...prev,
+                        installHrsOverrides: {
+                          ...(prev.installHrsOverrides ?? buildDefaultInstallHrsOverrides()),
+                          [type.id]: isNaN(val) ? type.installHrs : val,
+                        },
+                      }));
+                    }}
+                  />
+                  {isOverridden && (
+                    <button
+                      onClick={() => setDraft((prev) => ({
+                        ...prev,
+                        installHrsOverrides: {
+                          ...(prev.installHrsOverrides ?? {}),
+                          [type.id]: type.installHrs,
+                        },
+                      }))}
+                      title={`Reset to Excel default: ${type.installHrs} hrs`}
+                      className="text-orange-400 hover:text-orange-600 flex-shrink-0"
+                    >
+                      <RotateCcw size={11} />
+                    </button>
+                  )}
+                </div>
+                <p className={`text-[10px] mt-0.5 font-mono ${isOverridden ? 'text-orange-500' : 'text-gray-400'}`}>
+                  ${cost.toFixed(0)}/unit · Excel: {type.installHrs}h
+                </p>
+              </div>
+            );
+          })}
         </div>
       </div>
 
