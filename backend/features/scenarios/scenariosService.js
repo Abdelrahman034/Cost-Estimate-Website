@@ -19,6 +19,7 @@ async function listScenarios({ projectId, companyId }) {
   return prisma.scenario.findMany({
     where:   { projectId },
     orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+    take:    50,
     include: {
       _count:    { select: { estimates: true } },
       estimates: {

@@ -338,9 +338,17 @@ export function SettingsProvider({ children }) {
   // `setPrices` saves to project layer when inside a project, else company layer.
   const prices = effectiveSettings.ductPrices ?? DEFAULT_DUCT_PRICES;
 
+  // Debounce refs — prevent a flood of API calls when user changes multiple
+  // fields rapidly (e.g. typing into a price input).
+  const pricesDebounceRef   = useRef(null);
+  const overheadDebounceRef = useRef(null);
+
   const setPrices = useCallback((value) => {
     const next = typeof value === 'function' ? value(prices) : value;
-    savePricingConfig({ ductPrices: next }).catch(() => {});
+    clearTimeout(pricesDebounceRef.current);
+    pricesDebounceRef.current = setTimeout(() => {
+      savePricingConfig({ ductPrices: next }).catch(() => {});
+    }, 600);
   }, [prices, savePricingConfig]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Legacy shim: overhead / setOverhead (used by MetalDuct module)
@@ -351,14 +359,16 @@ export function SettingsProvider({ children }) {
 
   const setOverhead = useCallback((value) => {
     const updates = typeof value === 'function' ? value(overhead) : value;
-    // If inside a project, overhead change goes to project overrides
-    if (activeProjectId) {
-      const next = { ...projectOverrides, ...updates };
-      setProjectOverrides(next);
-      projectSettingsApi.save(activeProjectId, next).catch(() => {});
-    } else {
-      saveCompanySettings(updates).catch(() => {});
-    }
+    clearTimeout(overheadDebounceRef.current);
+    overheadDebounceRef.current = setTimeout(() => {
+      if (activeProjectId) {
+        const next = { ...projectOverrides, ...updates };
+        setProjectOverrides(next);
+        projectSettingsApi.save(activeProjectId, next).catch(() => {});
+      } else {
+        saveCompanySettings(updates).catch(() => {});
+      }
+    }, 600);
   }, [overhead, activeProjectId, projectOverrides, saveCompanySettings]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (

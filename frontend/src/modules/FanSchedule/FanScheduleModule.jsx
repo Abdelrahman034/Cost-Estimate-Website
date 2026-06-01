@@ -1,5 +1,8 @@
 import React, { useState, useCallback, useEffect, useContext } from 'react';
-import { Plus, Trash2, Download, Settings2, Play } from 'lucide-react';
+import { Plus, Trash2, Download, Settings2, Play, CheckSquare, Square } from 'lucide-react';
+import RowFilterBar from '@components/RowFilterBar';
+import BulkTagger from '@components/BulkTagger';
+import BidTypePill from '@components/BidTypePill';
 import { DEMO_FAN_SCHEDULE } from '@utils/demoData';
 import toast from 'react-hot-toast';
 import {
@@ -16,8 +19,10 @@ import FanTotals from './FanTotals';
 import FanPriceSettings from './FanPriceSettings';
 import { useEstimate } from '@hooks/useEstimate';
 import { useAutoSave } from '@hooks/useAutoSave';
+import { useModuleKeyboard } from '@hooks/useModuleKeyboard';
 import { useSettingsAutoSave } from '@hooks/useSettingsAutoSave';
 import EstimateProjectBanner from '@components/EstimateProjectBanner';
+import ModuleTotalsBar from '@components/ModuleTotalsBar';
 import { SettingsContext } from '@contexts/SettingsContext';
 
 // ─── Default settings (mirror Excel config cells) ─────────────────────────────
@@ -45,6 +50,7 @@ const newRow = () => ({
   wallPen:      false,
   laborInput:   0,
   notes:        '',
+  bidType:      'base',
 });
 
 // ─── Main Module ───────────────────────────────────────────────────────────────
@@ -60,7 +66,7 @@ export default function FanScheduleModule() {
     ...(pricingConfig.fanSettings ?? {}),
   }));
   const [showSettings, setShowSettings] = useState(false);
-  const { projectId, projectName, loadEstimate, saveEstimate, saving, lastSaved, saveError } = useEstimate('FAN_SCHEDULE');
+  const { projectId, projectName, loadEstimate, saveEstimate, saving, lastSaved, saveError, loadError } = useEstimate('FAN_SCHEDULE');
 
   // ── Auto-save rows ─────────────────────────────────────────────────────────
   const { markAsLoaded } = useAutoSave(
@@ -68,6 +74,14 @@ export default function FanScheduleModule() {
     () => saveEstimate({ rowsJson: rows }),
     !!projectId,
   );
+
+  // ── Keyboard shortcuts + unsaved changes warning ─────────────────────────
+  useModuleKeyboard({
+    onSave:  () => saveEstimate({ rowsJson: rows }),
+    isDirty: !!projectId && !lastSaved,
+    enabled: !!projectId,
+  });
+
 
   // ── Auto-save fan settings ─────────────────────────────────────────────────
   const settingsSnapshotRef = useSettingsAutoSave(settings, activeProjectId, () =>
@@ -134,12 +148,22 @@ export default function FanScheduleModule() {
       totalCost:     batch.totals.totalMatPlusLab,
     });
     if (projectId) {
+      const _btt = {};
+      (batch.rows || []).forEach((r, i) => {
+        const src = rows[i];
+        const bt = src?.bidType || 'base';
+        if (!_btt[bt]) _btt[bt] = { mat: 0, labor: 0, total: 0 };
+        _btt[bt].mat   += r.totalMaterial || 0;
+        _btt[bt].labor += r.laborFinal    || 0;
+        _btt[bt].total += r.matPlusLab    || 0;
+      });
       saveEstimate({
         rowsJson:      rows,
         totalMaterial: batch.totals.totalMaterial,
         totalLabor:    batch.totals.totalLaborFinal,
         totalCost:     batch.totals.totalMatPlusLab,
         totalHours:    batch.totals.totalLaborHours,
+        totalsJson:    { bidTypeTotals: _btt },
       });
     }
   }, [rows, settings, projectId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -155,11 +179,31 @@ export default function FanScheduleModule() {
   }, [rows]);
 
   // ── Row handlers ───────────────────────────────────────────────────────────
+  const [filterText, setFilterText] = useState('');
+  const filteredRows = filterText.trim()
+    ? rows.filter((r) => {
+        const q = filterText.toLowerCase();
+        return (r.tagId || '').toLowerCase().includes(q)
+          || (r.fanType || '').toLowerCase().includes(q)
+          || (r.sizeCategory || '').toLowerCase().includes(q)
+          || (r.notes || '').toLowerCase().includes(q);
+      })
+    : rows;
+
+  const toggleAllPenetration = (field) => {
+    const allOn = rows.every((r) => r[field]);
+    setRows((prev) => prev.map((r) => ({ ...r, [field]: !allOn })));
+  };
+
   const handleRowChange = useCallback((id, field, value) => {
     setRows((prev) => prev.map((r) => r.id === id ? { ...r, [field]: value } : r));
   }, []);
 
   const addRow = () => setRows((prev) => [...prev, newRow()]);
+
+  const applyBulkTags = (prefix, start) => {
+    setRows(prev => prev.map((r, i) => ({ ...r, tagId: `${prefix}${start + i}` })));
+  };
 
   const removeRow = (id) => setRows((prev) => {
     if (prev.length <= 1) return prev;
@@ -239,7 +283,14 @@ export default function FanScheduleModule() {
     <div className="max-w-full">
       <EstimateProjectBanner
         projectId={projectId} projectName={projectName}
-        saving={saving} lastSaved={lastSaved} saveError={saveError}
+        saving={saving} lastSaved={lastSaved} saveError={saveError} loadError={loadError}
+      />
+      <ModuleTotalsBar
+        label="Fan Schedule"
+        material={results?.totals?.totalMaterial}
+        labor={results?.totals?.totalLabor}
+        hours={results?.totals?.totalHours}
+        total={results?.totals?.totalCost}
       />
       {/* ── Header ──────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between mb-6">
@@ -334,6 +385,13 @@ export default function FanScheduleModule() {
 
       {/* ── Table ───────────────────────────────────────────────────────────── */}
       <div className="card p-0 overflow-hidden">
+        <RowFilterBar
+          value={filterText}
+          onChange={setFilterText}
+          total={rows.length}
+          filtered={filteredRows.length}
+          placeholder="Search by tag, fan type, size, notes…"
+        />
         <div className="overflow-x-auto">
           <table className="w-full text-sm" style={{ minWidth: '1400px' }}>
             <thead>
@@ -352,14 +410,33 @@ export default function FanScheduleModule() {
                   <div className="text-[10px] font-normal text-gray-400">col H</div>
                 </th>
                 {/* Penetration toggles */}
-                <th className="text-center px-3 py-3 font-semibold text-gray-600 w-16">
-                  Roof
-                  <div className="text-[10px] font-normal text-gray-400">pen</div>
-                </th>
-                <th className="text-center px-3 py-3 font-semibold text-gray-600 w-16">
-                  Wall
-                  <div className="text-[10px] font-normal text-gray-400">pen</div>
-                </th>
+                {[
+                  { field: 'roofPen', label: 'Roof', sub: 'pen' },
+                  { field: 'wallPen', label: 'Wall', sub: 'pen' },
+                ].map(({ field, label, sub }) => {
+                  const allOn = rows.length > 0 && rows.every((r) => r[field]);
+                  return (
+                    <th key={field} className="text-center px-3 py-3 font-semibold text-gray-600 w-16">
+                      <div className="flex flex-col items-center gap-1">
+                        <span>{label}</span>
+                        <div className="text-[10px] font-normal text-gray-400">{sub}</div>
+                        <button
+                          type="button"
+                          onClick={() => toggleAllPenetration(field)}
+                          title={allOn ? `Deselect all ${label}` : `Select all ${label}`}
+                          className={`flex items-center gap-1 text-[10px] font-normal rounded px-1.5 py-0.5 transition-colors border ${
+                            allOn
+                              ? 'bg-blue-100 text-blue-700 border-blue-300 hover:bg-blue-200'
+                              : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-100'
+                          }`}
+                        >
+                          {allOn ? <CheckSquare size={10} /> : <Square size={10} />}
+                          All
+                        </button>
+                      </div>
+                    </th>
+                  );
+                })}
                 {/* Computed columns */}
                 <th className="text-left px-3 py-3 font-semibold text-gray-600 w-24">
                   Pen $
@@ -388,23 +465,26 @@ export default function FanScheduleModule() {
                 <th className="text-left px-3 py-3 font-semibold text-gray-600 w-28">
                   Mat+Lab $
                   <div className="text-[10px] font-normal text-gray-400">col Q</div>
+    
                 </th>
                 <th className="text-left px-3 py-3 font-semibold text-gray-600 w-36">Notes</th>
+                <th className="text-center px-2 py-3 font-semibold text-gray-600 w-16">Bid</th>
                 <th className="w-16"></th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((row, i) => {
+              {filteredRows.map((row, i) => {
                 const resultRow = results?.rows?.[i];
                 return (
                   <FanRow
                     key={row.id}
                     row={row}
                     result={resultRow}
-                    index={i}
+                    index={rows.indexOf(row)}
                     onChange={handleRowChange}
                     onRemove={() => removeRow(row.id)}
                     onDuplicate={() => duplicateRow(row.id)}
+                    onAdd={addRow}
                   />
                 );
               })}
@@ -413,7 +493,7 @@ export default function FanScheduleModule() {
         </div>
 
         {/* Add row */}
-        <div className="px-4 py-3 border-t border-gray-100">
+        <div className="px-4 py-3 border-t border-gray-100 flex items-center gap-4">
           <button
             onClick={addRow}
             className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 font-medium"
@@ -421,24 +501,16 @@ export default function FanScheduleModule() {
             <Plus size={16} />
             Add Fan
           </button>
+          <BulkTagger onApply={applyBulkTags} placeholder="e.g. EF-" />
         </div>
       </div>
 
-      {/* ── Totals ──────────────────────────────────────────────────────────── */}
-      {results && (
-        <FanTotals
-          totals={results.totals}
-          rowCount={filledCount}
-          settings={settings}
-        />
-      )}
+      {/* ── Totals ───────────────────────────────────────────────────────────── */}
+      {results && <FanTotals totals={results.totals} />}
 
-      {/* ── Clear ───────────────────────────────────────────────────────────── */}
+      {/* ── Clear ────────────────────────────────────────────────────────────── */}
       <div className="mt-4 flex justify-end">
-        <button
-          onClick={clearAll}
-          className="text-sm text-red-500 hover:text-red-700 flex items-center gap-1"
-        >
+        <button onClick={clearAll} className="text-sm text-red-500 hover:text-red-700 flex items-center gap-1">
           <Trash2 size={14} /> Clear All
         </button>
       </div>

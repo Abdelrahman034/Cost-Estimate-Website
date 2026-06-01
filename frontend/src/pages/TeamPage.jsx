@@ -22,7 +22,6 @@ import toast from 'react-hot-toast';
 const ROLE_BADGE = {
   ADMIN:     'bg-purple-50 text-purple-700 border-purple-200',
   ESTIMATOR: 'bg-blue-50 text-blue-700 border-blue-200',
-  VIEWER:    'bg-gray-50 text-gray-600 border-gray-200',
 };
 
 const fmtDate = (iso) =>
@@ -39,7 +38,7 @@ const fmtExpiry = (iso) => {
 
 function RoleBadge({ role }) {
   return (
-    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${ROLE_BADGE[role] || ROLE_BADGE.VIEWER}`}>
+    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${ROLE_BADGE[role] || ROLE_BADGE.ESTIMATOR}`}>
       {role}
     </span>
   );
@@ -99,7 +98,6 @@ function InviteModal({ open, onClose, onSent }) {
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Role</label>
             <select name="role" value={form.role} onChange={handle} className="input w-full">
               <option value="ESTIMATOR">Estimator — can create and edit estimates</option>
-              <option value="VIEWER">Viewer — read-only access</option>
               <option value="ADMIN">Admin — full access including team management</option>
             </select>
           </div>

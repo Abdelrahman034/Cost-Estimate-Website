@@ -112,7 +112,6 @@ export function AuthProvider({ children }) {
 
   const isAdmin     = user?.role === 'ADMIN';
   const isEstimator = user?.role === 'ESTIMATOR';
-  const isViewer    = user?.role === 'VIEWER';
 
   const value = {
     user,
@@ -120,7 +119,6 @@ export function AuthProvider({ children }) {
     loading,
     isAdmin,
     isEstimator,
-    isViewer,
     login,
     register,
     logout,

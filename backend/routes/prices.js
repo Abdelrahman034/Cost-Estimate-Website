@@ -45,23 +45,29 @@ router.get('/current', async (req, res) => {
     if (companyId) await savePriceHistory(companyId, prices);
     res.json({ ...prices, cached: false });
   } catch (err) {
-    console.error('Price fetch error:', err.message);
+    console.error('[prices/current]', err.message);
     const lastSaved = await getLatestPriceHistory(companyId);
     if (lastSaved) return res.json({ ...lastSaved.pricesJson, cached: true, fallback: true });
-    res.status(500).json({ error: err.message });
+    // Never send raw err.message to client — it may contain DB or internal details
+    res.status(500).json({ error: 'Failed to fetch current prices.' });
   }
 });
 
 router.get('/history', async (req, res) => {
   const companyId = req.user?.companyId;
+  // companyId is required — this route is protected by requireAuth which sets req.user
+  if (!companyId) return res.status(401).json({ error: 'Unauthorized.' });
   try {
     const rows = await prisma.priceHistory.findMany({
-      where: companyId ? { companyId } : undefined,
+      where:   { companyId },   // always scoped — never return another company's history
       orderBy: { fetchedAt: 'desc' },
-      take: 20,
+      take:    20,
     });
     res.json(rows.map(r => ({ ...r.pricesJson, fetchedAt: r.fetchedAt, source: r.source })));
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    console.error('[prices/history]', err.message);
+    res.status(500).json({ error: 'Failed to load price history.' });
+  }
 });
 
 router.get('/defaults', (req, res) => {

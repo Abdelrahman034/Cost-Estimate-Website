@@ -36,7 +36,7 @@ export default function LouverDamperRow({ row, result, index, onChange, onRemove
   const isMotorized = MOTORIZED_TYPES.has(row.type);
 
   return (
-    <RowWrapper index={index} onRemove={onRemove} onDuplicate={onDuplicate}>
+    <RowWrapper index={index} onRemove={onRemove} onDuplicate={onDuplicate} row={row} onRowChange={onChange}>
       {/* Main inputs */}
       <div className="grid grid-cols-12 gap-2 items-end">
         <div className="col-span-2">

@@ -1,5 +1,8 @@
 import React, { useState, useCallback, useEffect, useContext } from 'react';
 import { Plus, Trash2, Download, Settings2, Play } from 'lucide-react';
+import RowFilterBar from '@components/RowFilterBar';
+import BulkTagger from '@components/BulkTagger';
+import BidTypePill from '@components/BidTypePill';
 import { DEMO_DIFFUSER } from '@utils/demoData';
 import toast from 'react-hot-toast';
 import { calculateDiffuserBatch } from '@utils/diffuserCalculations';
@@ -8,8 +11,10 @@ import DiffuserTotals from './DiffuserTotals';
 import DiffuserPriceSettings from './DiffuserPriceSettings';
 import { useEstimate } from '@hooks/useEstimate';
 import { useAutoSave } from '@hooks/useAutoSave';
+import { useModuleKeyboard } from '@hooks/useModuleKeyboard';
 import { useSettingsAutoSave } from '@hooks/useSettingsAutoSave';
 import EstimateProjectBanner from '@components/EstimateProjectBanner';
+import ModuleTotalsBar from '@components/ModuleTotalsBar';
 import { SettingsContext } from '@contexts/SettingsContext';
 
 // ─── Default per-session settings ────────────────────────────────────────────
@@ -63,7 +68,7 @@ export default function DiffuserModule() {
     ...(pricingConfig.diffuserSettings ?? {}),
   }));
   const [showSettings, setShowSettings] = useState(false);
-  const { projectId, projectName, loadEstimate, saveEstimate, saving, lastSaved, saveError } = useEstimate('DIFFUSER_SCHEDULE');
+  const { projectId, projectName, loadEstimate, saveEstimate, saving, lastSaved, saveError, loadError } = useEstimate('DIFFUSER_SCHEDULE');
 
   // ── Auto-save rows ─────────────────────────────────────────────────────────
   const { markAsLoaded } = useAutoSave(
@@ -71,6 +76,14 @@ export default function DiffuserModule() {
     () => saveEstimate({ rowsJson: rows }),
     !!projectId,
   );
+
+  // ── Keyboard shortcuts + unsaved changes warning ─────────────────────────
+  useModuleKeyboard({
+    onSave:  () => saveEstimate({ rowsJson: rows }),
+    isDirty: !!projectId && !lastSaved,
+    enabled: !!projectId,
+  });
+
 
   // ── Auto-save diffuser settings ────────────────────────────────────────────
   const settingsSnapshotRef = useSettingsAutoSave(settings, activeProjectId, () =>
@@ -132,12 +145,22 @@ export default function DiffuserModule() {
     const batch = calculateDiffuserBatch(enrichedRows, buildCalcSettings(settings));
     setResults(batch);
     if (projectId) {
+      const _btt = {};
+      (batch.rows || []).forEach((r, i) => {
+        const src = rows[i];
+        const bt = src?.bidType || 'base';
+        if (!_btt[bt]) _btt[bt] = { mat: 0, labor: 0, total: 0 };
+        _btt[bt].mat   += r.totalMat   || 0;
+        _btt[bt].labor += r.totalLabor || 0;
+        _btt[bt].total += r.total      || 0;
+      });
       saveEstimate({
         rowsJson:      rows,
         totalMaterial: batch.totals.totalMat,
         totalLabor:    batch.totals.totalLabor,
         totalCost:     batch.totals.total,
         totalHours:    batch.totals.totalHours,
+        totalsJson:    { bidTypeTotals: _btt },
       });
     }
   }, [rows, settings, projectId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -158,6 +181,20 @@ export default function DiffuserModule() {
   }, []);
 
   const addRow = () => setRows((prev) => [...prev, newRow()]);
+
+  const applyBulkTags = (prefix, start) => {
+    setRows(prev => prev.map((r, i) => ({ ...r, tag: `${prefix}${start + i}` })));
+  };
+
+  const [filterText, setFilterText] = useState('');
+  const filteredRows = filterText.trim()
+    ? rows.filter((r) => {
+        const q = filterText.toLowerCase();
+        return (r.tag || '').toLowerCase().includes(q)
+          || (r.typeId || '').toLowerCase().includes(q)
+          || (r.notes || '').toLowerCase().includes(q);
+      })
+    : rows;
 
   const removeRow = (id) => setRows((prev) => {
     if (prev.length <= 1) return prev;
@@ -220,7 +257,14 @@ export default function DiffuserModule() {
     <div className="max-w-full">
       <EstimateProjectBanner
         projectId={projectId} projectName={projectName}
-        saving={saving} lastSaved={lastSaved} saveError={saveError}
+        saving={saving} lastSaved={lastSaved} saveError={saveError} loadError={loadError}
+      />
+      <ModuleTotalsBar
+        label="Diffusers"
+        material={results?.totals?.materialCost}
+        labor={results?.totals?.laborCost}
+        hours={results?.totals?.totalHours}
+        total={results?.totals?.totalCost}
       />
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between mb-6">
@@ -316,6 +360,13 @@ export default function DiffuserModule() {
 
       {/* ── Table ──────────────────────────────────────────────────────────── */}
       <div className="card p-0 overflow-hidden">
+        <RowFilterBar
+          value={filterText}
+          onChange={setFilterText}
+          total={rows.length}
+          filtered={filteredRows.length}
+          placeholder="Search by tag, type, notes…"
+        />
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -336,21 +387,23 @@ export default function DiffuserModule() {
                 <th className="text-left px-3 py-3 font-semibold text-gray-600 w-24">Total Labor</th>
                 <th className="text-left px-3 py-3 font-semibold text-gray-600 w-28">Total</th>
                 <th className="text-left px-3 py-3 font-semibold text-gray-600">Notes</th>
+                <th className="text-center px-2 py-3 font-semibold text-gray-600 w-16">Bid</th>
                 <th className="w-16"></th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((row, i) => {
+              {filteredRows.map((row) => {
                 const resultRow = results?.rows?.find((r) => r.id === row.id);
                 return (
                   <DiffuserRow
                     key={row.id}
                     row={row}
                     result={resultRow}
-                    index={i}
+                    index={rows.indexOf(row)}
                     onChange={handleRowChange}
                     onRemove={() => removeRow(row.id)}
                     onDuplicate={() => duplicateRow(row.id)}
+                    onAdd={addRow}
                   />
                 );
               })}
@@ -359,7 +412,7 @@ export default function DiffuserModule() {
         </div>
 
         {/* Add row */}
-        <div className="px-4 py-3 border-t border-gray-100">
+        <div className="px-4 py-3 border-t border-gray-100 flex items-center gap-4">
           <button
             onClick={addRow}
             className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 font-medium"
@@ -367,6 +420,7 @@ export default function DiffuserModule() {
             <Plus size={16} />
             Add Row
           </button>
+          <BulkTagger onApply={applyBulkTags} placeholder="e.g. SD-" />
         </div>
       </div>
 

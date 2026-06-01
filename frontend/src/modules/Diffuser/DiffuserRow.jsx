@@ -1,4 +1,5 @@
 import React from 'react';
+import BidTypePill from '@components/BidTypePill';
 import { Trash2, Copy } from 'lucide-react';
 import { DIFFUSER_TYPES } from '@utils/diffuserCalculations';
 
@@ -12,7 +13,7 @@ const SOURCE_BADGE = {
 
 const dash = <span className="text-gray-300">—</span>;
 
-export default function DiffuserRow({ row, result, index, onChange, onRemove, onDuplicate }) {
+export default function DiffuserRow({ row, result, index, onChange, onRemove, onDuplicate, onAdd }) {
   const bg = index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50';
   const hasResult = !!result && result.qty > 0 && !!result.typeId;
   const badge = SOURCE_BADGE[result?.priceSource ?? 'none'] ?? SOURCE_BADGE.none;
@@ -147,18 +148,24 @@ export default function DiffuserRow({ row, result, index, onChange, onRemove, on
           className="input text-xs min-w-[100px]"
           value={row.notes ?? ''}
           onChange={(e) => onChange(row.id, 'notes', e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && onAdd) { e.preventDefault(); onAdd(); } }}
         />
+      </td>
+
+      {/* Bid Type */}
+      <td className="px-2 py-2 text-center">
+        <BidTypePill value={row.bidType || 'base'} onChange={(v) => onChange(row.id, 'bidType', v)} />
       </td>
 
       {/* Actions */}
       <td className="px-2 py-2 w-16">
         <div className="flex items-center gap-1">
           <button onClick={onDuplicate} title="Duplicate row"
-            className="text-gray-300 hover:text-blue-500 transition-colors p-1">
+            className="text-gray-500 hover:text-blue-500 transition-colors p-1">
             <Copy size={13} />
           </button>
           <button onClick={onRemove} title="Remove row"
-            className="text-gray-300 hover:text-red-500 transition-colors p-1">
+            className="text-gray-500 hover:text-red-500 transition-colors p-1">
             <Trash2 size={13} />
           </button>
         </div>

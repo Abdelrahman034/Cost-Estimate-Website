@@ -26,6 +26,7 @@ async function listEstimates({ projectId, companyId }) {
   const estimates = await prisma.estimate.findMany({
     where:   { projectId },
     orderBy: { module: 'asc' },
+    take:    50,
     select: {
       id:            true,
       module:        true,

@@ -16,7 +16,7 @@ import {
 import { saveModuleTotals } from '@utils/projectTotals';
 import { useEstimate } from '@hooks/useEstimate';
 import EstimateProjectBanner from '@components/EstimateProjectBanner';
-import LouverDamperRow from '../UnitSchedule/LouverDamperRow';
+import LouverDamperRow from './LouverDamperRow';
 
 // ─── Row factory ──────────────────────────────────────────────────────────────
 let _rowCounter = 1;

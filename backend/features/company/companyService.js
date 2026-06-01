@@ -33,6 +33,7 @@ async function listUsers({ companyId }) {
   return prisma.user.findMany({
     where:   { companyId },
     orderBy: { createdAt: 'asc' },
+    take:    500,
     select: {
       id: true, email: true, firstName: true, lastName: true,
       role: true, isActive: true, lastLoginAt: true, createdAt: true,
@@ -84,6 +85,7 @@ async function listInvites({ companyId }) {
   return prisma.invite.findMany({
     where:   { companyId, status: 'PENDING' },
     orderBy: { createdAt: 'desc' },
+    take:    100,
     select:  { id: true, email: true, role: true, status: true, expiresAt: true, createdAt: true },
   });
 }

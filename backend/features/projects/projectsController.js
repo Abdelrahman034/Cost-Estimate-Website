@@ -1,3 +1,4 @@
+const sendError = require('../../middleware/sendError');
 // features/projects/projectsController.js
 //
 // HTTP layer only — reads req, calls service, sends res.
@@ -19,7 +20,7 @@ async function list(req, res) {
     });
     res.json(result);
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
+    sendError(res, err);
   }
 }
 
@@ -34,7 +35,7 @@ async function getOne(req, res) {
     });
     res.json(project);
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
+    sendError(res, err);
   }
 }
 
@@ -48,7 +49,7 @@ async function create(req, res) {
     });
     res.status(201).json(project);
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
+    sendError(res, err);
   }
 }
 
@@ -62,7 +63,7 @@ async function update(req, res) {
     });
     res.json(project);
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
+    sendError(res, err);
   }
 }
 
@@ -75,7 +76,7 @@ async function remove(req, res) {
     });
     res.status(204).send();
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
+    sendError(res, err);
   }
 }
 
@@ -90,7 +91,7 @@ async function getMembers(req, res) {
     });
     res.json(members);
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
+    sendError(res, err);
   }
 }
 
@@ -105,7 +106,7 @@ async function addMember(req, res) {
     });
     res.status(201).json(member);
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
+    sendError(res, err);
   }
 }
 
@@ -119,7 +120,7 @@ async function removeMember(req, res) {
     });
     res.status(204).send();
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
+    sendError(res, err);
   }
 }
 
@@ -137,7 +138,7 @@ async function getSettings(req, res) {
     });
     res.json({ overrides });
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
+    sendError(res, err);
   }
 }
 
@@ -153,7 +154,7 @@ async function saveSettings(req, res) {
     });
     res.json({ overrides: saved });
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
+    sendError(res, err);
   }
 }
 
@@ -168,7 +169,7 @@ async function resetSettings(req, res) {
     });
     res.json({ overrides: {} });
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
+    sendError(res, err);
   }
 }
 

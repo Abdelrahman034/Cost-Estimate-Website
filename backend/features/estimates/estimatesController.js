@@ -1,3 +1,4 @@
+const sendError = require('../../middleware/sendError');
 // features/estimates/estimatesController.js
 //
 // HTTP layer only — reads req, calls service, sends res.
@@ -13,7 +14,7 @@ async function list(req, res) {
     });
     res.json(estimates);
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
+    sendError(res, err);
   }
 }
 
@@ -27,7 +28,7 @@ async function getOne(req, res) {
     });
     res.json(estimate);
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
+    sendError(res, err);
   }
 }
 
@@ -43,7 +44,7 @@ async function getByModule(req, res) {
     });
     res.json(estimate); // null means "not saved yet"
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
+    sendError(res, err);
   }
 }
 
@@ -59,7 +60,7 @@ async function upsert(req, res) {
     });
     res.status(200).json(estimate);
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
+    sendError(res, err);
   }
 }
 
@@ -73,7 +74,7 @@ async function remove(req, res) {
     });
     res.status(204).send();
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
+    sendError(res, err);
   }
 }
 

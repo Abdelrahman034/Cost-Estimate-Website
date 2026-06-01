@@ -1,0 +1,26 @@
+# Environment & secrets — NEVER commit these
+.env
+.env.local
+.env.production
+.env.staging
+*.pem
+*.key
+*.cert
+
+# Dependencies
+node_modules/
+
+# Prisma generated client
+node_modules/.prisma/
+
+# Uploads & generated files
+uploads/
+outputs/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db

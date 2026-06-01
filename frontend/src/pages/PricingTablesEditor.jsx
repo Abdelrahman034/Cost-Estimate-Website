@@ -6,7 +6,7 @@
  * Includes a "Load from Hardcoded" button to seed defaults.
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import { ChevronDown, ChevronUp, RotateCcw, Save, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import {
   SERVICE_PRICING_TABLE,
@@ -287,9 +287,11 @@ export default function PricingTablesEditor({ config, onSave, saving = false }) 
     return grouped;
   }, []);
 
+  const [confirmLoadDefaults, setConfirmLoadDefaults] = useState(false);
+
   const loadDefaults = () => {
-    if (!window.confirm('Load all pricing tables from hardcoded defaults? This will replace any saved values.')) return;
     setTables(JSON.parse(JSON.stringify(DEFAULT_UNIT_PRICING_TABLES)));
+    setConfirmLoadDefaults(false);
     setShowConfirm(false);
   };
 
@@ -320,14 +322,32 @@ export default function PricingTablesEditor({ config, onSave, saving = false }) 
 
       {/* Control buttons */}
       <div className="flex items-center gap-2 flex-wrap">
-        <button
-          onClick={loadDefaults}
-          className="flex items-center gap-1.5 text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 rounded px-3 py-2 font-medium transition-colors"
-          title="Load all tables from hardcoded defaults"
-        >
-          <RefreshCw size={12} />
-          Load from Hardcoded
-        </button>
+        {confirmLoadDefaults ? (
+          <span className="flex items-center gap-2 text-xs">
+            <span className="text-gray-500">This will replace all saved values.</span>
+            <button
+              onClick={loadDefaults}
+              className="px-2 py-1 bg-red-100 hover:bg-red-200 text-red-700 rounded font-medium transition-colors"
+            >
+              Yes, reset
+            </button>
+            <button
+              onClick={() => setConfirmLoadDefaults(false)}
+              className="px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded font-medium transition-colors"
+            >
+              Cancel
+            </button>
+          </span>
+        ) : (
+          <button
+            onClick={() => setConfirmLoadDefaults(true)}
+            className="flex items-center gap-1.5 text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 rounded px-3 py-2 font-medium transition-colors"
+            title="Load all tables from hardcoded defaults"
+          >
+            <RefreshCw size={12} />
+            Load from Hardcoded
+          </button>
+        )}
         {isDirty && (
           <>
             <button

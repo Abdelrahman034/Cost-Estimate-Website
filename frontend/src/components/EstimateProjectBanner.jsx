@@ -4,12 +4,38 @@
 // • With projectId  → blue banner showing project name, back link, and save status
 // • Without projectId → amber standalone warning with a link to /projects
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FolderOpen, CheckCircle2, Loader2, AlertCircle, ArrowLeft, FolderX } from 'lucide-react';
 
-export default function EstimateProjectBanner({ projectId, projectName, saving, lastSaved, saveError }) {
-  const navigate = useNavigate();
+// Returns a live-updating relative time string: "just now", "2 min ago", etc.
+function useRelativeTime(date) {
+  const [label, setLabel] = useState('');
+
+  useEffect(() => {
+    if (!date) { setLabel(''); return; }
+
+    const update = () => {
+      const secs = Math.floor((Date.now() - date.getTime()) / 1000);
+      if (secs < 10)  { setLabel('just now'); return; }
+      if (secs < 60)  { setLabel(`${secs}s ago`); return; }
+      const mins = Math.floor(secs / 60);
+      if (mins < 60)  { setLabel(`${mins} min ago`); return; }
+      // Older than 1 hour — fall back to clock time
+      setLabel(date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }));
+    };
+
+    update();
+    const id = setInterval(update, 10_000); // refresh every 10s
+    return () => clearInterval(id);
+  }, [date]);
+
+  return label;
+}
+
+export default function EstimateProjectBanner({ projectId, projectName, saving, lastSaved, saveError, loadError }) {
+  const navigate     = useNavigate();
+  const relativeTime = useRelativeTime(lastSaved);
 
   // ── Standalone mode warning ────────────────────────────────────────────────
   if (!projectId) {
@@ -31,10 +57,6 @@ export default function EstimateProjectBanner({ projectId, projectName, saving, 
   }
 
   // ── Project-linked mode ────────────────────────────────────────────────────
-  const fmtTime = (date) => date
-    ? date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-    : null;
-
   return (
     <div className="flex items-center gap-3 mb-4 px-4 py-2.5 bg-blue-50 border border-blue-100 rounded-xl text-sm">
       {/* Back to project */}
@@ -49,8 +71,12 @@ export default function EstimateProjectBanner({ projectId, projectName, saving, 
 
       <span className="text-blue-200 flex-shrink-0">|</span>
 
-      {/* Save status */}
-      {saveError ? (
+      {/* Save / load status */}
+      {loadError ? (
+        <span className="flex items-center gap-1.5 text-red-600">
+          <AlertCircle size={13} /> Load failed: {loadError}
+        </span>
+      ) : saveError ? (
         <span className="flex items-center gap-1.5 text-red-600">
           <AlertCircle size={13} /> {saveError}
         </span>
@@ -60,7 +86,7 @@ export default function EstimateProjectBanner({ projectId, projectName, saving, 
         </span>
       ) : lastSaved ? (
         <span className="flex items-center gap-1.5 text-green-600">
-          <CheckCircle2 size={13} /> Saved at {fmtTime(lastSaved)}
+          <CheckCircle2 size={13} /> Saved {relativeTime}
         </span>
       ) : (
         <span className="text-blue-400">Changes will be saved after you calculate</span>

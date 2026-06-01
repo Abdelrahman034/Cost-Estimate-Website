@@ -16,7 +16,6 @@ import { useAuth } from '@contexts/AuthContext';
 const ROLE_BADGE = {
   ADMIN:     'bg-purple-50 text-purple-700 border border-purple-200',
   ESTIMATOR: 'bg-blue-50 text-blue-700 border border-blue-200',
-  VIEWER:    'bg-gray-50 text-gray-600 border border-gray-200',
 };
 
 function fmtDate(iso) {
@@ -325,7 +324,7 @@ export default function CompanyPage() {
                   <div className="text-xs text-gray-400 truncate">{u.email}</div>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${ROLE_BADGE[u.role] || ROLE_BADGE.VIEWER}`}>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${ROLE_BADGE[u.role] || ROLE_BADGE.ESTIMATOR}`}>
                     {u.role}
                   </span>
                   {u.lastLoginAt && (

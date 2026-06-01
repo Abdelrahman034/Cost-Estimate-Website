@@ -9,7 +9,7 @@
 // After requireAuth runs, every handler has access to:
 //   req.user.userId    — the logged-in user's ID
 //   req.user.companyId — their company (used to scope ALL database queries)
-//   req.user.role      — ADMIN | ESTIMATOR | VIEWER
+//   req.user.role      — ADMIN | ESTIMATOR
 
 const jwt = require('jsonwebtoken');
 

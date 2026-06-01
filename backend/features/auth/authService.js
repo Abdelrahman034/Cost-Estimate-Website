@@ -9,9 +9,24 @@
 const bcrypt = require('bcrypt');
 const jwt    = require('jsonwebtoken');
 const prisma = require('../../prisma/client');
+const { recordLoginFailure, recordLoginSuccess } = require('../../middleware/security');
 
-const SALT_ROUNDS        = 12;
-const REFRESH_TTL_MS     = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
+const SALT_ROUNDS    = 12;
+const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+// ── Password strength policy ──────────────────────────────────────────────────
+// At least 8 chars, 1 uppercase, 1 lowercase, 1 digit, 1 special character.
+const PASSWORD_POLICY = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()\-_=+[\]{};':"\\|,.<>/?]).{8,}$/;
+
+function assertPasswordStrength(password) {
+  if (!password || !PASSWORD_POLICY.test(password)) {
+    const err = new Error(
+      'Password must be at least 8 characters and include uppercase, lowercase, a number, and a special character.'
+    );
+    err.status = 400;
+    throw err;
+  }
+}
 
 // ── Token helpers ─────────────────────────────────────────────────────────────
 
@@ -51,6 +66,7 @@ function formatUserResponse(user, company) {
 // ── Register ──────────────────────────────────────────────────────────────────
 
 async function register({ companyName, email, password, firstName, lastName }) {
+  assertPasswordStrength(password);
   const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
 
   // Prisma transaction: all-or-nothing — if any step fails, nothing is saved
@@ -100,11 +116,13 @@ async function login({ email, password }) {
   const passwordOk = await bcrypt.compare(password, user?.passwordHash || dummy);
 
   if (!user || !passwordOk) {
+    recordLoginFailure(email);
     const err = new Error('Invalid email or password.');
     err.status = 401;
     throw err;
   }
 
+  recordLoginSuccess(email);
   const payload      = buildTokenPayload(user);
   const accessToken  = signAccessToken(payload);
   const refreshToken = signRefreshToken(payload);

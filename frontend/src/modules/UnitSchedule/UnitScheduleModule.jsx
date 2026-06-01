@@ -13,6 +13,7 @@
  *   • Copy From Project  — clone a section from a previously saved project snapshot
  */
 import React, { useState, useCallback, useMemo, useEffect, useContext, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Plus, Download, ChevronDown, ChevronUp, Info, Upload, Copy as CopyIcon, Play, Settings2, Zap, LayoutList } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { DEMO_UNIT_SCHEDULE } from '@utils/demoData';
@@ -32,7 +33,9 @@ import {
 } from '@utils/unitScheduleCalculations';
 import { saveModuleTotals } from '@utils/projectTotals';
 import { useEstimate } from '@hooks/useEstimate';
+import { useModuleKeyboard } from '@hooks/useModuleKeyboard';
 import EstimateProjectBanner from '@components/EstimateProjectBanner';
+import ModuleTotalsBar from '@components/ModuleTotalsBar';
 import { SectionExpandContext } from './shared';
 import { TemplatesPanel } from './TemplatesModal';
 import CsvImportModal from './CsvImportModal';
@@ -67,12 +70,12 @@ function autoNextName(rows) {
 // Row factories
 const newServiceRow = (id) => ({
   id, name: '', coolTons: 0, systemType: SYSTEM_TYPES.PACKAGED,
-  pmMaterials: 0, pmLabor: 0,
+  pmMaterials: 0, pmLabor: 0, bidType: 'base',
 });
 const newPackagedRow = (id) => ({
   id, name: '', coolTons: 0, ownerProvided: '',
   baseCostPerTon: 0, quotedEquipCost: null,
-  miscPct: 3,
+  miscPct: 3, bidType: 'base',
   accessories: {
     standardCurb: '', metalRoofCurb: '', curbAdapter: '', economizer: '',
     pvcCond: '', cuCond: '', thermostat: '', smokeDetectors: '',
@@ -91,7 +94,14 @@ export const DEFAULT_COPPER = {
 };
 
 const newSplitRow = (id) => ({
-  id, name: '', coolTons: 0, ownerProvided: '',
+  id, name: '', coolTons: 0, ownerProvided: '', bidType: 'base',
+  // ── Outdoor unit (condenser) ──────────────────────────────────
+  outdoorBaseCostPerTon: 0,
+  outdoorQuotedCost:     null,
+  // ── Indoor unit (air handler / evaporator coil) ───────────────
+  indoorBaseCostPerTon:  0,
+  indoorQuotedCost:      null,
+  // Legacy single-field — kept for backward compat with saved estimates
   baseCostPerTon: 0, quotedEquipCost: null,
   miscPct: 3,
   copper: { ...DEFAULT_COPPER },
@@ -102,7 +112,7 @@ const newSplitRow = (id) => ({
   },
 });
 const newWallMountRow = (id) => ({
-  id, name: '', coolTons: 0, ownerProvided: '',
+  id, name: '', coolTons: 0, ownerProvided: '', bidType: 'base',
   baseCostPerTon: 0, quotedEquipCost: null,
   miscPct: 3,
   copper: { ...DEFAULT_COPPER },
@@ -112,7 +122,7 @@ const newWallMountRow = (id) => ({
   },
 });
 const newVRFRow = (id) => ({
-  id, name: '', coolTons: 0, condensingUnits: 1, indoorUnits: 1,
+  id, name: '', coolTons: 0, condensingUnits: 1, indoorUnits: 1, bidType: 'base',
   indoorCoolAvgTons: 0, ownerProvided: '', baseCostPerTon: 0,
   quotedEquipCost: null, cuLineAvgLength: 0,
   miscPct: 3,
@@ -193,7 +203,17 @@ function CopyFromProjectBtn({ sectionKey, onImport }) {
 export default function UnitScheduleModule({ projectInfo }) {
   const { accessoryPriceOverrides, pricingConfig, savePricingConfig, activeProjectId } = useContext(SettingsContext);
 
-  const [activeTab, setActiveTab]           = useState('service');
+  // Tab persistence — read from URL so navigating back restores the correct tab
+  const [searchParams, setSearchParams] = useSearchParams();
+  const VALID_TABS = ['service', 'packaged', 'split', 'wallMount', 'vrf'];
+  const urlTab = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState(
+    VALID_TABS.includes(urlTab) ? urlTab : 'service'
+  );
+  const handleTabChange = useCallback((tab) => {
+    setActiveTab(tab);
+    setSearchParams(prev => { prev.set('tab', tab); return prev; }, { replace: true });
+  }, [setSearchParams]);
   const [showTechRates, setShowTechRates]   = useState(false);
   const [showCopperSettings, setShowCopperSettings] = useState(false);
   const [showAccSettings,    setShowAccSettings]    = useState(false);
@@ -234,7 +254,7 @@ export default function UnitScheduleModule({ projectInfo }) {
   const [splitRows,        setSplitRows]        = useState([newSplitRow('sp-1')]);
   const [wallMountRows,    setWallMountRows]    = useState([newWallMountRow('wm-1')]);
   const [vrfRows,          setVRFRows]          = useState([newVRFRow('v-1')]);
-  const { projectId, projectName, loadEstimate, saveEstimate, saving, lastSaved, saveError } = useEstimate('UNIT_SCHEDULE');
+  const { projectId, projectName, loadEstimate, saveEstimate, saving, lastSaved, saveError, loadError } = useEstimate('UNIT_SCHEDULE');
 
   // Prevent auto-save from firing immediately after DB load
   const loadedRef = useRef(false);
@@ -295,6 +315,18 @@ export default function UnitScheduleModule({ projectInfo }) {
   useEffect(() => {
     saveModuleTotals('unit_schedule', summary.grand);
   }, [summary]);
+
+  // ── Keyboard shortcuts + unsaved changes warning ─────────────────────────
+  useModuleKeyboard({
+    onSave: () => saveEstimate({
+      rowsJson: { serviceRows, packagedRows, splitRows, wallMountRows, vrfRows },
+      totalMaterial: summary.grand.totalMaterial,
+      totalLabor:    summary.grand.totalLabor,
+      totalCost:     summary.grand.totalCost,
+    }),
+    isDirty: !!projectId && !lastSaved,
+    enabled: !!projectId,
+  });
 
   // Auto-save to DB (debounced 2s) whenever rows or summary change
   useEffect(() => {
@@ -640,7 +672,14 @@ export default function UnitScheduleModule({ projectInfo }) {
     <div className="max-w-full">
       <EstimateProjectBanner
         projectId={projectId} projectName={projectName}
-        saving={saving} lastSaved={lastSaved} saveError={saveError}
+        saving={saving} lastSaved={lastSaved} saveError={saveError} loadError={loadError}
+      />
+      <ModuleTotalsBar
+        label="Unit Schedule"
+        material={summary.grand.totalMaterial}
+        labor={summary.grand.totalLabor}
+        hours={summary.grand.totalHours}
+        total={summary.grand.totalCost}
       />
       <div className="flex items-center justify-between mb-4">
         <div>
@@ -891,7 +930,7 @@ export default function UnitScheduleModule({ projectInfo }) {
           const isActive = activeTab === tab.id;
           const colors   = TAB_COLOR_CLASSES[tab.color];
           return (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+            <button key={tab.id} onClick={() => handleTabChange(tab.id)}
               className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors
                 ${isActive
                   ? `${colors.active} border-b-2`
@@ -981,7 +1020,7 @@ function SectionWrapper({ title, subtitle, sectionKey, totals, onAdd, onImportRo
               onChange={e => setBulkCount(Math.max(1, Math.min(20, parseInt(e.target.value) || 1)))}
               className="w-12 border border-gray-200 rounded px-1.5 py-0.5 text-center text-xs text-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-400"
               title="Set > 1 to add multiple sequentially-named rows at once" />
-            <span className="text-gray-300 hover:text-blue-400 cursor-help transition-colors"
+            <span className="text-gray-500 hover:text-blue-400 cursor-help transition-colors"
               title="Names are auto-incremented: EF-1 -> EF-2 -> EF-3">
               <Info size={12} />
             </span>

@@ -1,3 +1,4 @@
+const sendError = require('../../middleware/sendError');
 // features/suppliers/suppliersController.js
 
 const svc = require('./suppliersService');

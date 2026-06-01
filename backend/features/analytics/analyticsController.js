@@ -1,3 +1,4 @@
+const sendError = require('../../middleware/sendError');
 // features/analytics/analyticsController.js
 
 const { getAnalytics } = require('./analyticsService');

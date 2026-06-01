@@ -22,6 +22,7 @@ async function listSuppliers({ companyId }) {
   return prisma.supplier.findMany({
     where:   { companyId, isActive: true },
     orderBy: { name: 'asc' },
+    take:    500,
     select: {
       id: true, name: true, company: true,
       email: true, phone: true, notes: true, isActive: true,
@@ -63,6 +64,7 @@ async function listRfqs({ companyId, projectId }) {
   return prisma.rfq.findMany({
     where: { companyId, ...(projectId ? { projectId } : {}) },
     orderBy: { createdAt: 'desc' },
+    take:    200,
     include: {
       suppliers: {
         include: { supplier: { select: { id: true, name: true, email: true } } },
@@ -150,6 +152,7 @@ async function listQuotes({ rfqId, companyId }) {
   await assertRfq(rfqId, companyId);
   return prisma.supplierQuote.findMany({
     where: { rfqId },
+    take:    200,
     include: { supplier: { select: { id: true, name: true, email: true } } },
     orderBy: { createdAt: 'asc' },
   });

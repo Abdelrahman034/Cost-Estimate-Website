@@ -1,5 +1,8 @@
 import React, { useState, useCallback, useContext, useEffect } from 'react';
 import { Plus, Trash2, Download, Settings2, Zap, Play } from 'lucide-react';
+import RowFilterBar from '@components/RowFilterBar';
+import BulkTagger from '@components/BulkTagger';
+import BidTypePill from '@components/BidTypePill';
 import { DEMO_ELEC_HEAT } from '@utils/demoData';
 import toast from 'react-hot-toast';
 import {
@@ -11,8 +14,10 @@ import ElectricHeatRow from './ElectricHeatRow';
 import ElectricHeatTotals from './ElectricHeatTotals';
 import { useEstimate } from '@hooks/useEstimate';
 import { useAutoSave } from '@hooks/useAutoSave';
+import { useModuleKeyboard } from '@hooks/useModuleKeyboard';
 import { useSettingsAutoSave } from '@hooks/useSettingsAutoSave';
 import EstimateProjectBanner from '@components/EstimateProjectBanner';
+import ModuleTotalsBar from '@components/ModuleTotalsBar';
 import { SettingsContext } from '@contexts/SettingsContext';
 
 // ─── Default settings ──────────────────────────────────────────────────────────
@@ -30,6 +35,7 @@ const newRow = () => ({
   unitCost: 0,
   labor:    0,
   notes:    '',
+  bidType:  'base',
 });
 
 // ─── Main Module ───────────────────────────────────────────────────────────────
@@ -43,7 +49,7 @@ export default function ElectricHeatModule() {
     ...(pricingConfig.elecHeatSettings ?? {}),
   }));
   const [showSettings, setShowSettings] = useState(false);
-  const { projectId, projectName, loadEstimate, saveEstimate, saving, lastSaved, saveError } = useEstimate('ELECTRIC_HEAT');
+  const { projectId, projectName, loadEstimate, saveEstimate, saving, lastSaved, saveError, loadError } = useEstimate('ELECTRIC_HEAT');
 
   // ── Auto-save rows ─────────────────────────────────────────────────────────
   const { markAsLoaded } = useAutoSave(
@@ -51,6 +57,14 @@ export default function ElectricHeatModule() {
     () => saveEstimate({ rowsJson: rows }),
     !!projectId,
   );
+
+  // ── Keyboard shortcuts + unsaved changes warning ─────────────────────────
+  useModuleKeyboard({
+    onSave:  () => saveEstimate({ rowsJson: rows }),
+    isDirty: !!projectId && !lastSaved,
+    enabled: !!projectId,
+  });
+
 
   // ── Auto-save elec heat settings ───────────────────────────────────────────
   const settingsSnapshotRef = useSettingsAutoSave(settings, activeProjectId, () =>
@@ -103,11 +117,21 @@ export default function ElectricHeatModule() {
       totalCost:     batch.totals.totalMatPlusLab,
     });
     if (projectId) {
+      const _btt = {};
+      (batch.rows || []).forEach((r, i) => {
+        const src = rows[i];
+        const bt = src?.bidType || 'base';
+        if (!_btt[bt]) _btt[bt] = { mat: 0, labor: 0, total: 0 };
+        _btt[bt].mat   += r.totalMaterial || 0;
+        _btt[bt].labor += r.labor        || 0;
+        _btt[bt].total += r.matPlusLab   || 0;
+      });
       saveEstimate({
         rowsJson:      rows,
         totalMaterial: batch.totals.totalMaterial,
         totalLabor:    batch.totals.totalLabor,
         totalCost:     batch.totals.totalMatPlusLab,
+        totalsJson:    { bidTypeTotals: _btt },
       });
     }
   }, [rows, settings, projectId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -128,6 +152,20 @@ export default function ElectricHeatModule() {
   }, []);
 
   const addRow = () => setRows((prev) => [...prev, newRow()]);
+
+  const applyBulkTags = (prefix, start) => {
+    setRows(prev => prev.map((r, i) => ({ ...r, tagId: `${prefix}${start + i}` })));
+  };
+
+  const [filterText, setFilterText] = useState('');
+  const filteredRows = filterText.trim()
+    ? rows.filter((r) => {
+        const q = filterText.toLowerCase();
+        return (r.tagId || '').toLowerCase().includes(q)
+          || (r.building || '').toLowerCase().includes(q)
+          || (r.notes || '').toLowerCase().includes(q);
+      })
+    : rows;
 
   const removeRow = (id) =>
     setRows((prev) => (prev.length <= 1 ? prev : prev.filter((r) => r.id !== id)));
@@ -199,7 +237,14 @@ export default function ElectricHeatModule() {
 
       <EstimateProjectBanner
         projectId={projectId} projectName={projectName}
-        saving={saving} lastSaved={lastSaved} saveError={saveError}
+        saving={saving} lastSaved={lastSaved} saveError={saveError} loadError={loadError}
+      />
+      <ModuleTotalsBar
+        label="Electric Heat"
+        material={results?.totals?.totalMaterial}
+        labor={results?.totals?.totalLabor}
+        hours={results?.totals?.totalHours}
+        total={results?.totals?.totalCost}
       />
       {/* ── Header ──────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between mb-6">
@@ -327,6 +372,13 @@ export default function ElectricHeatModule() {
 
       {/* ── Table ───────────────────────────────────────────────────────────── */}
       <div className="card p-0 overflow-hidden">
+        <RowFilterBar
+          value={filterText}
+          onChange={setFilterText}
+          total={rows.length}
+          filtered={filteredRows.length}
+          placeholder="Search by tag, building, notes…"
+        />
         <div className="overflow-x-auto">
           <table className="w-full text-sm" style={{ minWidth: '1000px' }}>
             <thead>
@@ -359,21 +411,23 @@ export default function ElectricHeatModule() {
                   <div className="text-[10px] font-normal text-gray-400">col I = G+H</div>
                 </th>
                 <th className="text-left px-3 py-3 font-semibold text-gray-600 w-36">Notes</th>
+                <th className="text-center px-2 py-3 font-semibold text-gray-600 w-16">Bid</th>
                 <th className="w-16"></th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((row, i) => {
+              {filteredRows.map((row, i) => {
                 const resultRow = results?.rows?.[i];
                 return (
                   <ElectricHeatRow
                     key={row.id}
                     row={row}
                     result={resultRow}
-                    index={i}
+                    index={rows.indexOf(row)}
                     onChange={handleRowChange}
                     onRemove={() => removeRow(row.id)}
                     onDuplicate={() => duplicateRow(row.id)}
+                    onAdd={addRow}
                   />
                 );
               })}
@@ -382,7 +436,7 @@ export default function ElectricHeatModule() {
         </div>
 
         {/* Add row */}
-        <div className="px-4 py-3 border-t border-gray-100">
+        <div className="px-4 py-3 border-t border-gray-100 flex items-center gap-4">
           <button
             onClick={addRow}
             className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 font-medium"
@@ -390,6 +444,7 @@ export default function ElectricHeatModule() {
             <Plus size={16} />
             Add Heater
           </button>
+          <BulkTagger onApply={applyBulkTags} placeholder="e.g. EH-" />
         </div>
       </div>
 
@@ -404,10 +459,8 @@ export default function ElectricHeatModule() {
 
       {/* ── Clear ───────────────────────────────────────────────────────────── */}
       <div className="mt-4 flex justify-end">
-        <button
-          onClick={clearAll}
-          className="text-sm text-red-500 hover:text-red-700 flex items-center gap-1"
-        >
+     
+        <button onClick={clearAll} className="text-sm text-red-500 hover:text-red-700 flex items-center gap-1">
           <Trash2 size={14} /> Clear All
         </button>
       </div>

@@ -14,7 +14,7 @@ export default function ServiceRow({ row, result, index, onChange, onRemove, onD
   const ch = (field) => (value) => onChange(row.id, field, value);
 
   return (
-    <RowWrapper index={index} onRemove={onRemove} onDuplicate={onDuplicate}>
+    <RowWrapper index={index} onRemove={onRemove} onDuplicate={onDuplicate} row={row} onRowChange={onChange}>
       {/* Main inputs row */}
       <div className="grid grid-cols-12 gap-2 items-end">
         {/* Name */}

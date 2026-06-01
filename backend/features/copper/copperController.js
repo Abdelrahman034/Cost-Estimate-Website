@@ -1,3 +1,4 @@
+const sendError = require('../../middleware/sendError');
 'use strict';
 /**
  * copperController.js
@@ -117,7 +118,7 @@ async function calcCopper(req, res) {
     return res.json(result);
   } catch (err) {
     console.error('[copperController] calcCopper error:', err.message);
-    return res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 }
 
@@ -146,7 +147,7 @@ function calcVRVPerSize(req, res) {
     );
     return res.json({ table, lmeInfo: engine.getLMEInfo(Number(lmePrice)) });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 }
 
@@ -227,7 +228,7 @@ async function updatePipeSpec(req, res) {
   } catch (err) {
     if (err.code === 'P2025') return res.status(404).json({ error: 'Pipe spec not found.' });
     console.error('[copperController] updatePipeSpec error:', err.message);
-    return res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 }
 
@@ -319,7 +320,7 @@ async function updateEquipmentConfig(req, res) {
       return res.status(400).json({ error: err.message });
     }
     console.error('[copperController] updateEquipmentConfig error:', err.message);
-    return res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 }
 
@@ -412,7 +413,7 @@ async function restoreDefaults(req, res) {
     });
   } catch (err) {
     console.error('[copperController] restoreDefaults error:', err.message);
-    return res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 }
 

@@ -175,7 +175,8 @@ function NewProjectModal({ open, onClose, onCreate }) {
 export default function ProjectsPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const isAdmin = user?.role === 'ADMIN';
+  const isAdmin    = user?.role === 'ADMIN';
+  const canCreate  = user?.role === 'ADMIN' || user?.role === 'ESTIMATOR';
 
   const [projects, setProjects] = useState([]);
   const [loading,  setLoading]  = useState(true);
@@ -199,6 +200,17 @@ export default function ProjectsPage() {
   useEffect(() => { load(); }, [load]);
 
   const handleCreated = (project) => setProjects(prev => [project, ...prev]);
+
+  // Quick status update — inline dropdown on project list row
+  const handleStatusChange = useCallback(async (projectId, newStatus) => {
+    setProjects(prev => prev.map(p => p.id === projectId ? { ...p, status: newStatus } : p));
+    try {
+      await projectsApi.update(projectId, { status: newStatus });
+    } catch {
+      // Revert optimistic update on failure
+      load();
+    }
+  }, [load]);
 
   // Filter + keep server-side sort (bidDate asc)
   const filtered = useMemo(() => {
@@ -242,7 +254,7 @@ export default function ProjectsPage() {
               className="input pl-8 w-56"
             />
           </div>
-          {isAdmin && (
+          {canCreate && (
             <button onClick={() => setModal(true)} className="btn-primary flex items-center gap-2 px-4 py-2">
               <Plus size={16} /> New project
             </button>
@@ -265,7 +277,7 @@ export default function ProjectsPage() {
           {projects.length === 0 ? (
             <>
               <p className="text-gray-500 font-medium">No projects yet</p>
-              {isAdmin ? (
+              {canCreate ? (
                 <>
                   <p className="text-gray-400 text-sm mt-1">Create your first project to get started.</p>
                   <button onClick={() => setModal(true)} className="btn-primary mt-4 px-5 py-2 flex items-center gap-2 mx-auto">
@@ -330,9 +342,18 @@ export default function ProjectsPage() {
                           : <span className="text-gray-300 text-xs">—</span>}
                       </td>
 
-                      {/* Status */}
-                      <td className="px-3 py-3 whitespace-nowrap">
-                        <Badge label={statusMeta.label} cls={statusMeta.cls} />
+                      {/* Status — inline quick-change dropdown */}
+                      <td className="px-3 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                        <select
+                          value={p.status}
+                          onChange={e => handleStatusChange(p.id, e.target.value)}
+                          className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border cursor-pointer appearance-none text-center ${statusMeta.cls} focus:outline-none`}
+                          title="Change project status"
+                        >
+                          {Object.entries(STATUS_META).map(([val, meta]) => (
+                            <option key={val} value={val}>{meta.label}</option>
+                          ))}
+                        </select>
                       </td>
 
                       {/* Submission */}

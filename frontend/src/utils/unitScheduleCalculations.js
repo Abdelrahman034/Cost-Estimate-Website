@@ -607,6 +607,12 @@ export function calcSplitUnit(unit) {
   const {
     coolTons = 0,
     ownerProvided = '',
+    // New per-unit fields (outdoor condenser + indoor air handler)
+    outdoorBaseCostPerTon = 0,
+    outdoorQuotedCost     = null,
+    indoorBaseCostPerTon  = 0,
+    indoorQuotedCost      = null,
+    // Legacy single-field fallback (used when new fields are all zero/null)
     baseCostPerTon = 0,
     quotedEquipCost = null,
     accessories = {},
@@ -623,15 +629,39 @@ export function calcSplitUnit(unit) {
   if (tons <= 0) {
     return {
       ...unit,
-      estEquipCost: 0, equipCost: 0,
+      estOutdoorCost: 0, outdoorCost: 0,
+      estIndoorCost:  0, indoorCost:  0,
+      estEquipCost: 0,   equipCost:   0,
       cuLineMaterial: 0, refrigCost: 0, cuLineHours: 0,
       accMaterial: 0, miscPct: Number(unit.miscPct) || 3, miscCost: 0,
       totalMaterial: 0, totalLabor: 0, totalHours: 0, totalCost: 0,
     };
   }
 
-  const estEquipCost = round0(tons * Number(baseCostPerTon));
-  const equipCost = ownerProvided === 'xx' ? 0 : (quotedEquipCost != null ? Number(quotedEquipCost) : estEquipCost);
+  // ── Equipment cost: outdoor + indoor separately ─────────────────────────────
+  // If new per-unit fields are in use, sum them. Otherwise fall back to the
+  // legacy single baseCostPerTon / quotedEquipCost so old saved rows still work.
+  const hasNewFields = Number(outdoorBaseCostPerTon) > 0 || outdoorQuotedCost != null
+                    || Number(indoorBaseCostPerTon)  > 0 || indoorQuotedCost  != null;
+
+  let estOutdoorCost, outdoorCost, estIndoorCost, indoorCost;
+
+  if (hasNewFields) {
+    estOutdoorCost = round0(tons * Number(outdoorBaseCostPerTon));
+    outdoorCost    = outdoorQuotedCost != null ? Number(outdoorQuotedCost) : estOutdoorCost;
+
+    estIndoorCost  = round0(tons * Number(indoorBaseCostPerTon));
+    indoorCost     = indoorQuotedCost  != null ? Number(indoorQuotedCost)  : estIndoorCost;
+  } else {
+    // Legacy fallback
+    estOutdoorCost = round0(tons * Number(baseCostPerTon));
+    outdoorCost    = quotedEquipCost != null ? Number(quotedEquipCost) : estOutdoorCost;
+    estIndoorCost  = 0;
+    indoorCost     = 0;
+  }
+
+  const estEquipCost = estOutdoorCost + estIndoorCost;
+  const equipCost    = ownerProvided === 'xx' ? 0 : (outdoorCost + indoorCost);
 
   let accMaterial = 0;
   let accLabor    = 0;
@@ -714,6 +744,10 @@ export function calcSplitUnit(unit) {
 
   return {
     ...unit,
+    estOutdoorCost,
+    outdoorCost,
+    estIndoorCost,
+    indoorCost,
     estEquipCost,
     equipCost,
     cuLineMaterial,
@@ -725,7 +759,6 @@ export function calcSplitUnit(unit) {
     totalMaterial: totalMat,
     totalLabor,
     totalHours:    round2(accHours + cuLineHours),
-    // Combined still includes copper so overall cost is unchanged
     totalCost:     round2(totalMat + cuLineMaterial + totalLabor),
   };
 }

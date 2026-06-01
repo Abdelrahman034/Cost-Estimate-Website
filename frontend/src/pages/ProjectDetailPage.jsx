@@ -10,6 +10,10 @@ import { projectsApi } from '@services/projectsApi';
 import { estimatesApi } from '@services/estimatesApi';
 import api from '@services/api';
 import { useAuth } from '@contexts/AuthContext';
+
+// Module-level cache so /company/users is only fetched once per session,
+// not on every ProjectDetailPage mount.
+let _companyUsersCache = null;
 import { SettingsContext } from '@contexts/SettingsContext';
 import { useActiveProject } from '@contexts/ActiveProjectContext';
 import ProjectSettingsOverride from '@components/ProjectSettingsOverride';
@@ -343,7 +347,11 @@ function ProjectMembersPanel({ projectId, initialMembers = [] }) {
   const [error,      setError]      = useState('');
 
   useEffect(() => {
-    api.get('/company/users').then(r => setAllUsers(r.data)).catch(() => {});
+    if (_companyUsersCache) { setAllUsers(_companyUsersCache); return; }
+    api.get('/company/users').then(r => {
+      _companyUsersCache = r.data;
+      setAllUsers(r.data);
+    }).catch(() => {});
   }, []);
 
   useEffect(() => { setMembers(initialMembers); }, [initialMembers]);

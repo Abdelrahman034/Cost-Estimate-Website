@@ -83,10 +83,13 @@ export const DEMO_UNIT_SCHEDULE = {
     {
       id: 'sp-demo-1', name: 'AHU-1 (Server Room 2F)',
       coolTons: 2, ownerProvided: '',
-      baseCostPerTon: 1200, quotedEquipCost: null,
+      outdoorBaseCostPerTon: 750, outdoorQuotedCost: null,
+      indoorBaseCostPerTon:  450, indoorQuotedCost:  null,
+      baseCostPerTon: 0, quotedEquipCost: null,
+      miscPct: 3,
+      copper: { mode: 'manual', copperType: 'L', avgLengthFt: 35, includeInsulation: true },
       accessories: {
-        condenserRails: 'x', drainPan: '', cuLineUnder100: 'x', cuLineOver100: '',
-        cuRollUnder100: '', cuRollOver100: '', oaDamper: '', floatSwitch: 'x',
+        condenserRails: 'x', drainPan: '', oaDamper: '', floatSwitch: 'x',
         pvcCond: 'x', cuCond: '', thermostat: 'x', smokeDetectors: '1',
         sensorQty: 1, ductTransitions: 'x',
       },
@@ -94,10 +97,13 @@ export const DEMO_UNIT_SCHEDULE = {
     {
       id: 'sp-demo-2', name: 'AHU-2 (IT Closet 3F)',
       coolTons: 3, ownerProvided: '',
-      baseCostPerTon: 1100, quotedEquipCost: null,
+      outdoorBaseCostPerTon: 700, outdoorQuotedCost: null,
+      indoorBaseCostPerTon:  400, indoorQuotedCost:  null,
+      baseCostPerTon: 0, quotedEquipCost: null,
+      miscPct: 3,
+      copper: { mode: 'manual', copperType: 'L', avgLengthFt: 50, includeInsulation: true },
       accessories: {
-        condenserRails: 'x', drainPan: '', cuLineUnder100: 'x', cuLineOver100: '',
-        cuRollUnder100: '', cuRollOver100: '', oaDamper: '', floatSwitch: 'x',
+        condenserRails: 'x', drainPan: '', oaDamper: '', floatSwitch: 'x',
         pvcCond: 'x', cuCond: '', thermostat: 'x', smokeDetectors: '',
         sensorQty: 0, ductTransitions: 'x',
       },

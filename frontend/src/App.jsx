@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
+import ErrorBoundary from '@components/ErrorBoundary';
 
 // Auth
 import { AuthProvider, useAuth } from '@contexts/AuthContext';
@@ -53,6 +54,7 @@ function AppShell() {
           user={user}
         />
         <main className="flex-1 overflow-y-auto p-6">
+          <ErrorBoundary>
           <Routes>
             {/* Home → always go to projects */}
             <Route path={ROUTE_PATHS.DASHBOARD} element={<Navigate to="/projects" replace />} />
@@ -88,6 +90,7 @@ function AppShell() {
             <Route path="/team"         element={<TeamPage />} />
             <Route path="*" element={<Navigate to={user?.role === 'ADMIN' ? ROUTE_PATHS.DASHBOARD : '/projects'} replace />} />
           </Routes>
+          </ErrorBoundary>
         </main>
       </div>
     </div>

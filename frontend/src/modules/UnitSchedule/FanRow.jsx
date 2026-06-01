@@ -57,7 +57,7 @@ export default function FanRow({ row, result, index, onChange, onRemove, onDupli
   const hasCFM = Number(row.cfm) > 0;
 
   return (
-    <RowWrapper index={index} onRemove={onRemove} onDuplicate={onDuplicate}>
+    <RowWrapper index={index} onRemove={onRemove} onDuplicate={onDuplicate} row={row} onRowChange={onChange}>
       {/* Row 1 — identity + sizing */}
       <div className="grid grid-cols-12 gap-2 items-end">
         <div className="col-span-2">

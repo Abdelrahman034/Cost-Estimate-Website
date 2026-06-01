@@ -157,7 +157,7 @@ export function TemplatesPanel({ sectionKey, onInsert }) {
                 <button
                   type="button"
                   onClick={() => deleteTemplate(t.id)}
-                  className="text-gray-300 hover:text-red-500 transition-colors"
+                  className="text-gray-500 hover:text-red-500 transition-colors"
                   title="Delete template"
                 >
                   <Trash2 size={13} />

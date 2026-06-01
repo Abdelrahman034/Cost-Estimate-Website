@@ -26,6 +26,7 @@ import {
 } from '@utils/generalCalculations';
 import { useEstimate } from '@hooks/useEstimate';
 import { useAutoSave } from '@hooks/useAutoSave';
+import { estimatesApi } from '@services/estimatesApi';
 import EstimateProjectBanner from '@components/EstimateProjectBanner';
 import { SettingsContext } from '@contexts/SettingsContext';
 
@@ -177,19 +178,91 @@ export default function GeneralModule() {
 
   const payload = { inputs, context, freeRows };
 
+  // Build the full save payload including computed totals so Summary can read them.
+  const buildSavePayload = useCallback((currentResults) => {
+    const s = currentResults?.summary;
+    return {
+      rowsJson:      payload,
+      totalMaterial: s?.totalMat   ?? 0,
+      totalLabor:    s?.totalLabor ?? 0,
+      totalCost:     s?.grandTotal ?? 0,
+    };
+  }, [payload]); // eslint-disable-line
+
   const { markAsLoaded } = useAutoSave(
     payload,
-    () => saveEstimate({ rowsJson: payload }),
+    () => saveEstimate(buildSavePayload(results)),
     !!projectId,
   );
 
+  // Auto-populate context fields from sibling module estimates on load.
+  const populateContext = useCallback(async (pid) => {
+    try {
+      const all = await estimatesApi.list(pid);
+      const SCHEDULE_MODULES = ['METAL_DUCT','UNIT_SCHEDULE','DIFFUSER_SCHEDULE',
+                                 'FAN_SCHEDULE','ELECTRIC_HEAT','LOUVERS_DAMPERS'];
+      const schedules = all.filter(e => SCHEDULE_MODULES.includes(e.module));
+
+      const directJobCost     = schedules.reduce((s, e) => s + (Number(e.totalMaterial) || 0) + (Number(e.totalLabor) || 0), 0);
+      const scheduleLaborCost = schedules.reduce((s, e) => s + (Number(e.totalLabor)    || 0), 0);
+
+      // Tons + unit count from UNIT_SCHEDULE
+      const unitEst   = all.find(e => e.module === 'UNIT_SCHEDULE');
+      const totalTons = Number(unitEst?.totalsJson?.totalTons) || 0;
+      // rowsJson is { serviceRows, packagedRows, splitRows, wallMountRows, vrfRows }
+      let totalUnits = 0;
+      if (unitEst) {
+        const full = await estimatesApi.getByModule(pid, 'UNIT_SCHEDULE');
+        const rj = full?.rowsJson;
+        if (rj && typeof rj === 'object') {
+          const isFilled = r => r.name?.trim() || Number(r.coolTons) > 0;
+          const groups = ['serviceRows','packagedRows','splitRows','wallMountRows'];
+          groups.forEach(g => {
+            if (Array.isArray(rj[g])) totalUnits += rj[g].filter(isFilled).length;
+          });
+          // VRF: count condensingUnits + indoorUnits per filled row
+          if (Array.isArray(rj.vrfRows)) {
+            rj.vrfRows.filter(isFilled).forEach(r => {
+              totalUnits += (Number(r.condensingUnits) || 1) + (Number(r.indoorUnits) || 1);
+            });
+          }
+        }
+      }
+
+      // Grill/diffuser count from DIFFUSER_SCHEDULE rowsJson (flat array of rows with qty)
+      let grillCount = 0;
+      const diffEst = all.find(e => e.module === 'DIFFUSER_SCHEDULE');
+      if (diffEst) {
+        const full = await estimatesApi.getByModule(pid, 'DIFFUSER_SCHEDULE');
+        if (Array.isArray(full?.rowsJson)) {
+          grillCount = full.rowsJson.reduce((s, r) => s + (Number(r.qty) || 0), 0);
+        }
+      }
+
+      setContext(prev => ({
+        ...prev,
+        directJobCost,
+        scheduleLaborCost,
+        // totalLaborCost is set after results are computed (scheduleLaborCost + general labor)
+        totalLaborCost: scheduleLaborCost,
+        totalTons,
+        totalUnits,
+        grillCount,
+      }));
+    } catch {
+      // silently skip — user can fill manually
+    }
+  }, []);
+
   useEffect(() => {
     if (!projectId) return;
+    // Always refresh context from sibling modules so Cross-Module Inputs stay current.
+    populateContext(projectId);
     loadEstimate().then(est => {
       if (est?.rowsJson) {
-        const { inputs: i, context: c, freeRows: f } = est.rowsJson;
+        const { inputs: i, freeRows: f } = est.rowsJson;
+        // Restore user inputs and free rows, but NOT context — that comes from populateContext.
         if (i) setInputs(i);
-        if (c) setContext(c);
         if (f) setFreeRows(f);
         markAsLoaded(est.rowsJson);
       } else {
@@ -198,10 +271,24 @@ export default function GeneralModule() {
     });
   }, [loadEstimate, projectId]); // eslint-disable-line
 
-  // Calculate on every change (live)
+  // Calculate on every change (live).
   useEffect(() => {
     setResults(calcGeneralBatch(inputs, context, freeRows));
   }, [inputs, context, freeRows]);
+
+  // Fix #3: whenever results change, push updated totals to DB so Summary stays in sync.
+  // Also keep totalLaborCost (used by Rentals) = scheduleLaborCost + general labor.
+  useEffect(() => {
+    if (!results) return;
+    const generalLabor = results.summary?.totalLabor ?? 0;
+    setContext(prev => {
+      const updated = prev.scheduleLaborCost + generalLabor;
+      if (updated === prev.totalLaborCost) return prev; // no change, avoid re-render loop
+      return { ...prev, totalLaborCost: updated };
+    });
+    if (!projectId) return;
+    saveEstimate(buildSavePayload(results));
+  }, [results]); // eslint-disable-line
 
   const setSection = useCallback((section, key, value) => {
     setInputs(prev => ({ ...prev, [section]: { ...prev[section], [key]: value } }));

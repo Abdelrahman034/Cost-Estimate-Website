@@ -6,7 +6,7 @@
 //
 // Access rules:
 //   ADMIN     → sees ALL projects in the company
-//   ESTIMATOR/VIEWER → sees only projects they created OR are a member of
+//   ESTIMATOR → sees only projects they created OR are a member of
 
 const prisma = require('../../prisma/client');
 

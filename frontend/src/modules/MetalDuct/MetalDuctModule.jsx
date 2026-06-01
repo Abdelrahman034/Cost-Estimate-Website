@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useContext, useEffect, useRef } from 'react';
-import { Plus, Trash2, Download, Info, Play, Settings2 } from 'lucide-react';
+import { Plus, Trash2, Download, Info, Play, Settings2, CheckSquare, Square } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ductApi } from '@services/api';
 import DuctRow from './DuctRow';
@@ -9,8 +9,12 @@ import { SettingsContext } from '@contexts/SettingsContext';
 import { DEMO_METAL_DUCT } from '@utils/demoData';
 import { useEstimate } from '@hooks/useEstimate';
 import { useAutoSave } from '@hooks/useAutoSave';
+import { useModuleKeyboard } from '@hooks/useModuleKeyboard';
 import { useSettingsAutoSave } from '@hooks/useSettingsAutoSave';
 import EstimateProjectBanner from '@components/EstimateProjectBanner';
+import ModuleTotalsBar from '@components/ModuleTotalsBar';
+import RowFilterBar from '@components/RowFilterBar';
+import BidTypePill from '@components/BidTypePill';
 
 const DEFAULT_PRICES = {
   sheetMetalCostPerLb: 4.00,
@@ -33,6 +37,7 @@ const newRow = (id) => ({
   difficultyFactor: 1.0,
   wasteFactor: 0.10,
   notes: '',
+  bidType: 'base',
 });
 
 const TEST_ROWS = [
@@ -115,7 +120,7 @@ export default function MetalDuctModule() {
   // Project overrides win over localStorage for calculations
   const effectivePrices = { ...prices, ...(pricingConfig?.ductPrices ?? {}) };
 
-  const { projectId, projectName, loadEstimate, saveEstimate, saving, lastSaved, saveError } = useEstimate('METAL_DUCT');
+  const { projectId, projectName, loadEstimate, saveEstimate, saving, lastSaved, saveError, loadError } = useEstimate('METAL_DUCT');
 
   // ── Auto-save rows (rowsJson only — totals saved by auto-calc effect below) ─
   const { markAsLoaded } = useAutoSave(
@@ -124,6 +129,14 @@ export default function MetalDuctModule() {
     !!projectId,
     500, // short delay — auto-calc fires at 2s and saves everything including totals
   );
+
+  // ── Keyboard shortcuts + unsaved changes warning ─────────────────────────
+  useModuleKeyboard({
+    onSave:  () => saveEstimate({ rowsJson: rows }),
+    isDirty: !!projectId && !lastSaved,
+    enabled: !!projectId,
+  });
+
 
   // ── Auto-save duct prices when they change (project layer only) ───────────
   // We watch `prices` (the value that setPrices writes) via `pricingConfig.ductPrices`.
@@ -167,13 +180,23 @@ export default function MetalDuctModule() {
     autoCalcTimer.current = setTimeout(async () => {
       const result = await calculateFromRows(rows);
       if (result && projectId) {
-        saveEstimate({
+
+          const _btt = {};
+          (result.rows || []).forEach((r) => {
+            const src = rows.find(row => row.id === r.id);
+            const bt = src?.bidType || 'base';
+            if (!_btt[bt]) _btt[bt] = { mat: 0, labor: 0, total: 0 };
+            _btt[bt].mat   += r.totalMaterialCost || 0;
+            _btt[bt].labor += r.laborCost || 0;
+            _btt[bt].total += r.totalCost || 0;
+          });
+          saveEstimate({
           rowsJson:         rows,
           totalMaterial:    result.totals.materialCost,
           totalLabor:       result.totals.laborCost,
           totalCost:        result.totals.totalCost,
           totalHours:       result.totals.laborHours,
-          totalsJson:       { totalWeight: result.totals.weight, totalSurfaceArea: result.totals.surfaceArea },
+          totalsJson:       { totalWeight: result.totals.weight, totalSurfaceArea: result.totals.surfaceArea, bidTypeTotals: _btt },
         });
       }
     }, 2000);
@@ -214,6 +237,36 @@ export default function MetalDuctModule() {
     }
   }, [effectivePrices]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const [filterText, setFilterText] = useState('');
+  const filteredRows = filterText.trim()
+    ? rows.filter((r) => {
+        const q = filterText.toLowerCase();
+        return (r.size || '').toLowerCase().includes(q)
+          || (r.ductType || '').toLowerCase().includes(q)
+          || (r.ductMaterial || '').toLowerCase().includes(q)
+          || (r.notes || '').toLowerCase().includes(q);
+      })
+    : rows;
+
+  const toggleAllAccessory = (field) => {
+    // If all non-disabled rows already have it on, turn all off; otherwise turn all on
+    const eligible = field === 'flexDuct'
+      ? rows.filter((r) => {
+          const s = (r.size || '').toLowerCase();
+          return !s.includes('x') && !s.includes('*');
+        })
+      : rows;
+    const allOn = eligible.length > 0 && eligible.every((r) => r[field]);
+    const nextVal = !allOn;
+    setRows((prev) => prev.map((r) => {
+      if (field === 'flexDuct') {
+        const s = (r.size || '').toLowerCase();
+        if (s.includes('x') || s.includes('*')) return r; // skip rectangular
+      }
+      return { ...r, [field]: nextVal };
+    }));
+  };
+
   const handleRowChange = useCallback((id, field, value) => {
     setRows((prev) => prev.map((r) => {
       if (r.id !== id) return r;
@@ -238,6 +291,15 @@ export default function MetalDuctModule() {
   const calculate = async () => {
     const result = await calculateFromRows(rows);
     if (result && projectId) {
+      const _btt = {};
+      (result.rows || []).forEach((r) => {
+        const src = rows.find(row => row.id === r.id);
+        const bt = src?.bidType || 'base';
+        if (!_btt[bt]) _btt[bt] = { mat: 0, labor: 0, total: 0 };
+        _btt[bt].mat   += r.totalMaterialCost || 0;
+        _btt[bt].labor += r.laborCost || 0;
+        _btt[bt].total += r.totalCost || 0;
+      });
       saveEstimate({
         rowsJson:      rows,
         totalMaterial: result.totals.materialCost,
@@ -247,6 +309,7 @@ export default function MetalDuctModule() {
         totalsJson:    {
           totalWeight:      result.totals.weight,
           totalSurfaceArea: result.totals.surfaceArea,
+          bidTypeTotals:    _btt,
         },
       });
     }
@@ -283,7 +346,14 @@ export default function MetalDuctModule() {
     <div className="max-w-full">
       <EstimateProjectBanner
         projectId={projectId} projectName={projectName}
-        saving={saving} lastSaved={lastSaved} saveError={saveError}
+        saving={saving} lastSaved={lastSaved} saveError={saveError} loadError={loadError}
+      />
+      <ModuleTotalsBar
+        label="Metal Duct"
+        material={results?.totals?.materialCost}
+        labor={results?.totals?.laborCost}
+        hours={results?.totals?.laborHours}
+        total={results?.totals?.totalCost}
       />
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
@@ -363,6 +433,13 @@ export default function MetalDuctModule() {
 
       {/* Table */}
       <div className="card p-0 overflow-hidden">
+        <RowFilterBar
+          value={filterText}
+          onChange={setFilterText}
+          total={rows.length}
+          filtered={filteredRows.length}
+          placeholder="Search by size, type, material, notes…"
+        />
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -398,24 +475,53 @@ export default function MetalDuctModule() {
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 w-28">Material $</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 w-24">Labor $</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 w-28">Total $</th>
-                <th className="text-center px-4 py-3 font-semibold text-gray-600 w-20" title="Duct wrap insulation price">Ins $</th>
-                <th className="text-center px-4 py-3 font-semibold text-gray-600 w-20" title="Flex duct price">Flex $</th>
-                <th className="text-center px-4 py-3 font-semibold text-gray-600 w-20" title="Volume damper price">VD $</th>
-                <th className="text-center px-4 py-3 font-semibold text-gray-600 w-20" title="Offtake price">OT $</th>
+                {[
+                  { field: 'insulated', label: 'Ins $',  title: 'Duct wrap insulation' },
+                  { field: 'flexDuct', label: 'Flex $', title: 'Flex duct (round only)' },
+                  { field: 'vd',       label: 'VD $',   title: 'Volume damper' },
+                    { field: 'offtake',  label: 'OT $',   title: 'Offtake connection' },
+                ].map(({ field, label, title }) => {
+                  const eligible = field === 'flexDuct'
+                    ? rows.filter((r) => { const s=(r.size||'').toLowerCase(); return !s.includes('x')&&!s.includes('*'); })
+                    : rows;
+                  const allOn = eligible.length > 0 && eligible.every((r) => r[field]);
+                  return (
+                    <th key={field} className="text-center px-4 py-3 font-semibold text-gray-600 w-20" title={title}>
+                      <div className="flex flex-col items-center gap-1">
+                        <span>{label}</span>
+                        <button
+                          type="button"
+                          onClick={() => toggleAllAccessory(field)}
+                          title={allOn ? `Deselect all ${label}` : `Select all ${label}`}
+                          className={`flex items-center gap-1 text-[10px] font-normal rounded px-1.5 py-0.5 transition-colors border ${
+                            allOn
+                              ? 'bg-blue-100 text-blue-700 border-blue-300 hover:bg-blue-200'
+                              : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-100'
+                          }`}
+                        >
+                          {allOn ? <CheckSquare size={10} /> : <Square size={10} />}
+                          All
+                        </button>
+                      </div>
+                    </th>
+                  );
+                })}
+                <th className="text-center px-2 py-3 font-semibold text-gray-600 w-16">Bid</th>
                 <th className="w-10"></th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((row, i) => {
+              {filteredRows.map((row, i) => {
                 const resultRow = results?.rows?.find((r) => r.id === row.id);
                 return (
                   <DuctRow
                     key={row.id}
                     row={row}
                     result={resultRow}
-                    index={i}
+                    index={rows.indexOf(row)}
                     onChange={handleRowChange}
                     onRemove={() => removeRow(row.id)}
+                    onAdd={addRow}
                     unitLabel={unitLabel}
                     showScaleHint={showScaleHint}
                     scaleFactor={scaleFactor}

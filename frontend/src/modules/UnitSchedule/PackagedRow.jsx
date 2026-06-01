@@ -27,7 +27,7 @@ export default function PackagedRow({ row, result, index, onChange, onRemove, on
   const hasTons = Number(row.coolTons) > 0;
 
   return (
-    <RowWrapper index={index} onRemove={onRemove} onDuplicate={onDuplicate}>
+    <RowWrapper index={index} onRemove={onRemove} onDuplicate={onDuplicate} row={row} onRowChange={onChange}>
       {/* Main inputs */}
       <div className="grid grid-cols-12 gap-2 items-end">
         <div className="col-span-3">

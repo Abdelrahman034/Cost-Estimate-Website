@@ -112,7 +112,7 @@ function SnapshotCard({ snap, prev, onDelete, selected, onSelect }) {
           {onDelete && (
             <button
               onClick={onDelete}
-              className="text-gray-300 hover:text-red-500 transition-colors"
+              className="text-gray-500 hover:text-red-500 transition-colors"
               title="Delete snapshot"
             >
               <Trash2 size={14} />

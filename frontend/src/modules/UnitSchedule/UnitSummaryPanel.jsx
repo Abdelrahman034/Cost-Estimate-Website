@@ -18,7 +18,7 @@ const ROW_CONFIG = [
   { type: 'VRF',                 dot: '#1D9E75', pillBg: '#E1F5EE', pillText: '#085041' },
 ];
 
-const PLACEHOLDER_ROWS = ['[FPB / VAV]', '[Chiller]', 'Boilers'];
+const PLACEHOLDER_ROWS = [];
 
 const tdBase = {
   padding: '7px 12px',

@@ -1,31 +1,33 @@
 // features/auth/authValidation.js
 //
 // Validation middleware for auth routes.
-// Each exported function returns a middleware that checks req.body
-// and calls next() if valid, or sends 400 with a clear error message.
-//
-// Why validate here and not in the controller?
-//   The controller should only deal with "what to do", not "is the input valid".
-//   Keeping validation separate means you can swap validation libraries
-//   (e.g. Zod, Joi) without touching business logic.
+
+// Strong password: 8+ chars, uppercase, lowercase, digit, special character
+const PASSWORD_POLICY = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()\-_=+[\]{};':"\\|,.<>/?]).{8,72}$/;
+// 72-char max because bcrypt silently truncates beyond 72 bytes
+
+// Email: basic format check + length cap
+const EMAIL_REGEX = /^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{2,}$/;
 
 function validateRegister(req, res, next) {
   const { companyName, email, password } = req.body;
 
-  if (!companyName || !companyName.trim()) {
+  if (!companyName || typeof companyName !== 'string' || !companyName.trim()) {
     return res.status(400).json({ error: 'Company name is required.' });
   }
-  if (!email || !email.trim()) {
-    return res.status(400).json({ error: 'Email is required.' });
+  if (companyName.trim().length > 200) {
+    return res.status(400).json({ error: 'Company name is too long.' });
   }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return res.status(400).json({ error: 'Email format is invalid.' });
+  if (!email || typeof email !== 'string' || !EMAIL_REGEX.test(email.trim())) {
+    return res.status(400).json({ error: 'A valid email address is required.' });
   }
-  if (!password) {
+  if (!password || typeof password !== 'string') {
     return res.status(400).json({ error: 'Password is required.' });
   }
-  if (password.length < 8) {
-    return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+  if (!PASSWORD_POLICY.test(password)) {
+    return res.status(400).json({
+      error: 'Password must be 8–72 characters and include uppercase, lowercase, a number, and a special character.',
+    });
   }
 
   next();
@@ -34,8 +36,15 @@ function validateRegister(req, res, next) {
 function validateLogin(req, res, next) {
   const { email, password } = req.body;
 
-  if (!email || !password) {
-    return res.status(400).json({ error: 'Email and password are required.' });
+  if (!email || typeof email !== 'string' || !email.trim()) {
+    return res.status(400).json({ error: 'Email is required.' });
+  }
+  if (!password || typeof password !== 'string') {
+    return res.status(400).json({ error: 'Password is required.' });
+  }
+  // Cap lengths to prevent bcrypt timing games on absurdly long inputs
+  if (email.length > 320 || password.length > 1000) {
+    return res.status(400).json({ error: 'Invalid credentials.' });
   }
 
   next();
@@ -44,8 +53,12 @@ function validateLogin(req, res, next) {
 function validateRefresh(req, res, next) {
   const { refreshToken } = req.body;
 
-  if (!refreshToken) {
+  if (!refreshToken || typeof refreshToken !== 'string') {
     return res.status(400).json({ error: 'Refresh token is required.' });
+  }
+  // JWT is header.payload.signature — sanity-check the format before hitting DB
+  if (!/^[\w-]+\.[\w-]+\.[\w-]+$/.test(refreshToken)) {
+    return res.status(401).json({ error: 'Invalid token format.' });
   }
 
   next();

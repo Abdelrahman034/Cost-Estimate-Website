@@ -88,7 +88,7 @@ export default function VRFRow({ row, result, index, onChange, onRemove, onDupli
   ]);
 
   return (
-    <RowWrapper index={index} onRemove={onRemove} onDuplicate={onDuplicate}>
+    <RowWrapper index={index} onRemove={onRemove} onDuplicate={onDuplicate} row={row} onRowChange={onChange}>
       {/* Main inputs — two rows for VRF because of extra fields */}
       <div className="grid grid-cols-12 gap-2 items-end mb-2">
         <div className="col-span-3">

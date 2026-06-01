@@ -2,8 +2,9 @@
  * Shared UI primitives used by all unit row components.
  * Keeps individual row files lean and consistent.
  */
-import React, { useState, useContext, useEffect, createContext } from 'react';
-import { Trash2, Copy, ChevronDown, ChevronRight } from 'lucide-react';
+import React, { useState, useContext, useEffect, useRef, createContext } from 'react';
+import { Trash2, Copy, ChevronDown, ChevronRight, Undo2 } from 'lucide-react';
+import BidTypePill from '@components/BidTypePill';
 
 /**
  * Context for section-level Expand All / Collapse All.
@@ -160,27 +161,75 @@ export function AccessoryItem({ label, selValue, onChange, hint }) {
 }
 
 // ─── ROW WRAPPER ─────────────────────────────────────────────────────────────
-export function RowWrapper({ index, onRemove, onDuplicate, children }) {
+export function RowWrapper({ index, onRemove, onDuplicate, row, onRowChange, children }) {
+  const [pendingDelete, setPendingDelete] = useState(false);
+  const timerRef = useRef(null);
+
+  const handleRemoveClick = () => {
+    setPendingDelete(true);
+    timerRef.current = setTimeout(() => {
+      onRemove();
+      setPendingDelete(false);
+    }, 4000); // 4-second undo window
+  };
+
+  const handleUndo = () => {
+    clearTimeout(timerRef.current);
+    setPendingDelete(false);
+  };
+
+  // On unmount: if a delete was pending (user navigated away), commit it immediately
+  const pendingDeleteRef = useRef(false);
+  pendingDeleteRef.current = pendingDelete;
+  const onRemoveRef = useRef(onRemove);
+  onRemoveRef.current = onRemove;
+
+  useEffect(() => () => {
+    clearTimeout(timerRef.current);
+    if (pendingDeleteRef.current) onRemoveRef.current();
+  }, []);
+
+  if (pendingDelete) {
+    return (
+      <div className={`${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
+        <div className="flex items-center gap-3 px-4 py-3 text-sm">
+          <span className="text-xs font-semibold text-gray-400 w-5 shrink-0">{index + 1}</span>
+          <span className="text-red-500 text-xs font-medium flex-1">Row will be deleted…</span>
+          <button
+            type="button"
+            onClick={handleUndo}
+            className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium border border-blue-200 rounded px-2 py-1 bg-white"
+          >
+            <Undo2 size={12} /> Undo
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
       <div className="flex items-start gap-2 px-4 py-3">
         <span className="text-xs font-semibold text-gray-400 mt-2.5 w-5 shrink-0">{index + 1}</span>
         <div className="flex-1 min-w-0">{children}</div>
         {/* Action buttons */}
-        <div className="flex flex-col gap-1 mt-2 shrink-0">
+        <div className="flex flex-col gap-1 mt-2 shrink-0 items-center">
+          {row && onRowChange && (
+            <BidTypePill value={row.bidType || 'base'} onChange={(v) => onRowChange(row.id, 'bidType', v)} />
+          )}
           <button
             type="button"
             onClick={onDuplicate}
-            className="text-gray-300 hover:text-blue-500 transition-colors"
+            className="p-1 rounded text-gray-500 hover:text-blue-600 hover:bg-blue-50 transition-colors"
             title="Duplicate row"
           >
             <Copy size={14} />
           </button>
           <button
             type="button"
-            onClick={onRemove}
-            className="text-gray-300 hover:text-red-500 transition-colors"
-            title="Remove unit"
+            onClick={handleRemoveClick}
+            className="p-1 rounded text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+            title="Remove row"
           >
             <Trash2 size={14} />
           </button>

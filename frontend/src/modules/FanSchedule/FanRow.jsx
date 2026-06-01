@@ -1,11 +1,12 @@
 import React from 'react';
+import BidTypePill from '@components/BidTypePill';
 import { Trash2, Copy } from 'lucide-react';
 import { FAN_TYPES, SIZE_CATEGORIES } from '@utils/fanScheduleCalculations';
 
 const fmt = (n) =>
   n == null ? '—' : `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
-export default function FanRow({ row, result, index, onChange, onRemove, onDuplicate }) {
+export default function FanRow({ row, result, index, onChange, onRemove, onDuplicate, onAdd }) {
   const bg = index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50';
   const hasResult = !!result && !!row.fanType;
 
@@ -202,7 +203,13 @@ export default function FanRow({ row, result, index, onChange, onRemove, onDupli
           className="input text-xs"
           value={row.notes}
           onChange={(e) => handleChange('notes', e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && onAdd) { e.preventDefault(); onAdd(); } }}
         />
+      </td>
+
+      {/* Bid Type */}
+      <td className="px-2 py-2 text-center">
+        <BidTypePill value={row.bidType || 'base'} onChange={(v) => handleChange('bidType', v)} />
       </td>
 
       {/* Duplicate / Delete */}
@@ -211,11 +218,11 @@ export default function FanRow({ row, result, index, onChange, onRemove, onDupli
           <button
             onClick={onDuplicate}
             title="Duplicate row"
-            className="text-gray-300 hover:text-blue-500 transition-colors p-1"
+            className="text-gray-500 hover:text-blue-500 transition-colors p-1"
           >
             <Copy size={14} />
           </button>
-          <button onClick={onRemove} className="text-gray-300 hover:text-red-500 transition-colors p-1">
+          <button onClick={onRemove} className="text-gray-500 hover:text-red-500 transition-colors p-1">
             <Trash2 size={14} />
           </button>
         </div>

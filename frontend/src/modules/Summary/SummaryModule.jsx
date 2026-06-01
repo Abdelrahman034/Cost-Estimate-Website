@@ -21,6 +21,7 @@ import { useEstimate }    from '@hooks/useEstimate';
 import { estimatesApi }   from '@services/estimatesApi';
 import { ductApi }        from '@services/api';
 import EstimateProjectBanner from '@components/EstimateProjectBanner';
+import { BID_TYPES } from '@components/BidTypePill';
 import { SettingsContext } from '@contexts/SettingsContext';
 import {
   Download, Info, RefreshCw, Link2, Edit3,
@@ -444,6 +445,24 @@ export function SummaryModule({ projectInfo = {} }) {
 
   const syncedCount = syncedKeys.size;
 
+
+  // ── Alternates breakdown — aggregate bidTypeTotals from all module estimates ─
+  const altTotals = React.useMemo(() => {
+    const acc = {};
+    allEstimates.forEach(est => {
+      const btt = est.totalsJson?.bidTypeTotals;
+      if (!btt) return;
+      Object.entries(btt).forEach(([bt, vals]) => {
+        if (!acc[bt]) acc[bt] = { mat: 0, labor: 0, total: 0 };
+        acc[bt].mat   += vals.mat   || 0;
+        acc[bt].labor += vals.labor || 0;
+        acc[bt].total += vals.total || 0;
+      });
+    });
+    return acc;
+  }, [allEstimates]);
+  const hasAlternates = Object.keys(altTotals).some(k => k !== 'base' && (altTotals[k]?.total || 0) > 0);
+
   return (
     <div className="max-w-6xl mx-auto">
       <EstimateProjectBanner
@@ -775,6 +794,60 @@ export function SummaryModule({ projectInfo = {} }) {
           </div>
         </div>
       </div>
+
+
+      {/* ── Alternates Breakdown ────────────────────────────────────────── */}
+      {hasAlternates && (
+        <div className="card">
+          <h3 className="font-semibold text-gray-700 text-sm mb-4 flex items-center gap-2">
+            Alternates Pricing Breakdown
+            <span className="text-xs font-normal text-gray-400">(from tagged rows across all modules)</span>
+          </h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-200 text-xs text-gray-500">
+                  <th className="text-left py-2 pr-4 font-semibold">Bid Type</th>
+                  <th className="text-right py-2 px-4 font-semibold">Material</th>
+                  <th className="text-right py-2 px-4 font-semibold">Labor</th>
+                  <th className="text-right py-2 px-4 font-semibold">Total</th>
+                  <th className="text-right py-2 pl-4 font-semibold">vs Base Bid</th>
+                </tr>
+              </thead>
+              <tbody>
+                {BID_TYPES.map(({ value, label, bg, text, border }) => {
+                  const vals = altTotals[value] || { mat: 0, labor: 0, total: 0 };
+                  const baseTotal = altTotals['base']?.total || 0;
+                  const delta = value !== 'base' ? vals.total : null;
+                  if (value !== 'base' && vals.total === 0) return null;
+                  return (
+                    <tr key={value} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                      <td className="py-2.5 pr-4">
+                        <span className={`inline-flex items-center rounded border text-xs font-semibold px-2 py-0.5 ${bg} ${text} ${border}`}>
+                          {label}
+                        </span>
+                      </td>
+                      <td className="text-right py-2.5 px-4 font-mono text-xs text-green-700">{fmt(vals.mat)}</td>
+                      <td className="text-right py-2.5 px-4 font-mono text-xs text-blue-700">{fmt(vals.labor)}</td>
+                      <td className="text-right py-2.5 px-4 font-mono text-sm font-bold text-gray-800">{fmt(vals.total)}</td>
+                      <td className="text-right py-2.5 pl-4 font-mono text-xs">
+                        {delta !== null && delta > 0 ? (
+                          <span className="text-amber-600">+{fmt(delta)}</span>
+                        ) : (
+                          <span className="text-gray-400">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-[10px] text-gray-400 mt-3">
+            Tag rows as Alt 1 / Alt 2 / Alt 3 using the Bid column in any module. Re-sync to update.
+          </p>
+        </div>
+      )}
 
       {/* ── Chart ─────────────────────────────────────────────────────────── */}
       {chartData.length > 0 && (

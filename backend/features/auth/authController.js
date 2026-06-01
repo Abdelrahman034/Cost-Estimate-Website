@@ -1,3 +1,4 @@
+const sendError = require('../../middleware/sendError');
 // features/auth/authController.js
 //
 // Controllers handle the HTTP layer ONLY:
@@ -21,7 +22,7 @@ async function register(req, res) {
       return res.status(409).json({ error: 'An account with this email already exists.' });
     }
     console.error('[auth/register]', err);
-    return res.status(err.status || 500).json({ error: err.message || 'Registration failed.' });
+    return sendError(res, err);
   }
 }
 
@@ -31,7 +32,7 @@ async function login(req, res) {
     return res.json(result);
   } catch (err) {
     console.error('[auth/login]', err);
-    return res.status(err.status || 500).json({ error: err.message || 'Login failed.' });
+    return sendError(res, err);
   }
 }
 
@@ -41,7 +42,7 @@ async function refresh(req, res) {
     return res.json(result);
   } catch (err) {
     console.error('[auth/refresh]', err);
-    return res.status(err.status || 500).json({ error: err.message || 'Token refresh failed.' });
+    return sendError(res, err);
   }
 }
 
@@ -62,7 +63,7 @@ async function getMe(req, res) {
     return res.json(user);
   } catch (err) {
     console.error('[auth/me]', err);
-    return res.status(err.status || 500).json({ error: err.message || 'Failed to load profile.' });
+    return sendError(res, err);
   }
 }
 
@@ -71,7 +72,7 @@ async function getInvite(req, res) {
     const info = await authService.getInvite(req.params.token);
     return res.json(info);
   } catch (err) {
-    return res.status(err.status || 500).json({ error: err.message });
+    return sendError(res, err);
   }
 }
 
@@ -84,7 +85,7 @@ async function acceptInvite(req, res) {
       return res.status(409).json({ error: 'An account with this email already exists.' });
     }
     console.error('[auth/accept-invite]', err);
-    return res.status(err.status || 500).json({ error: err.message || 'Could not accept invite.' });
+    return sendError(res, err);
   }
 }
 

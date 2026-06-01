@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Menu, ChevronDown, LogOut, User } from 'lucide-react';
+import { ChevronDown, LogOut, User, ArrowLeft } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 export default function Header({ onMenuClick, onLogout, user }) {
+  const navigate = useNavigate();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef(null);
 
@@ -17,12 +19,14 @@ export default function Header({ onMenuClick, onLogout, user }) {
 
   return (
     <header className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-3 z-10">
-      {/* Hamburger */}
+      {/* Back button */}
       <button
-        onClick={onMenuClick}
-        className="text-gray-500 hover:text-gray-700 p-1 rounded-lg hover:bg-gray-100"
+        onClick={() => navigate(-1)}
+        className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 px-2 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+        title="Go back"
       >
-        <Menu size={20} />
+        <ArrowLeft size={16} />
+        Back
       </button>
 
       <div className="flex-1" />

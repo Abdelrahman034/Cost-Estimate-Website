@@ -1,8 +1,9 @@
 import React from 'react';
+import BidTypePill from '@components/BidTypePill';
 import { Circle, CheckCircle2, Trash2 } from 'lucide-react';
 import { selectGauge, getMaxDimension, calculateSurfaceArea, detectShape, DUCT_MATERIAL_OPTIONS, getThicknessMm } from '@utils/ductCalculations';
 
-export default function DuctRow({ row, result, index, onChange, onRemove, sizePresets = [], unitLabel = 'ft', showScaleHint = false, scaleFactor = 1.0 }) {
+export default function DuctRow({ row, result, index, onChange, onRemove, onAdd, sizePresets = [], unitLabel = 'ft', showScaleHint = false, scaleFactor = 1.0 }) {
   const maxDim      = getMaxDimension(row.size);
   const shape       = row.size ? detectShape(row.size) : null;
   const gauge       = row.size ? selectGauge(maxDim, shape) : null;
@@ -87,6 +88,7 @@ export default function DuctRow({ row, result, index, onChange, onRemove, sizePr
           placeholder="0"
           value={row.linearFeet}
           onChange={(e) => onChange(row.id, 'linearFeet', e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && onAdd) { e.preventDefault(); onAdd(); } }}
         />
         {showScaleHint && rawLf > 0 && (
           <div className="text-xs text-blue-500 mt-0.5 font-mono">
@@ -194,11 +196,16 @@ export default function DuctRow({ row, result, index, onChange, onRemove, sizePr
       {accessoryCell('VD', 'Volume damper', row.vd || false, result?.vdCost, 'vd', 'bg-green-50 text-green-700 border-green-200', 'hover:bg-green-100')}
       {accessoryCell('OT', 'Offtake connection', row.offtake || false, result?.offtakeCost, 'offtake', 'bg-red-50 text-red-700 border-red-200', 'hover:bg-red-100')}
 
+      {/* Bid Type */}
+      <td className="px-2 py-2 text-center">
+        <BidTypePill value={row.bidType || 'base'} onChange={(v) => onChange(row.id, 'bidType', v)} />
+      </td>
+
       {/* Delete */}
       <td className="px-3 py-2">
         <button
           onClick={onRemove}
-          className="text-gray-300 hover:text-red-500 transition-colors p-1"
+          className="text-gray-500 hover:text-red-500 transition-colors p-1"
         >
           <Trash2 size={14} />
         </button>

@@ -83,32 +83,79 @@ export default function SplitRow({ row, result, index, onChange, onRemove, onDup
   ]);
 
   return (
-    <RowWrapper index={index} onRemove={onRemove} onDuplicate={onDuplicate}>
-      {/* Main inputs */}
+    <RowWrapper index={index} onRemove={onRemove} onDuplicate={onDuplicate} row={row} onRowChange={onChange}>
+      {/* Main inputs — top row */}
       <div className="grid grid-cols-12 gap-2 items-end">
-        <div className="col-span-3">
+        <div className="col-span-4">
           <label className="text-xs text-gray-400 mb-1 block">Unit Name / Tag</label>
           <TextInput value={row.name} onChange={ch('name')} placeholder="e.g. AC-1" />
         </div>
-        <div className="col-span-2">
+        <div className="col-span-3">
           <label className="text-xs text-gray-400 mb-1 block">Cooling (Tons)</label>
           <NumInput value={row.coolTons} onChange={ch('coolTons')} placeholder="0" />
         </div>
-        <div className="col-span-2">
+        <div className="col-span-3">
           <label className="text-xs text-gray-400 mb-1 block">Owner Provided</label>
           <Select value={row.ownerProvided} onChange={ch('ownerProvided')} options={OWNER_OPTIONS} />
         </div>
-        <div className="col-span-2">
-          <label className="text-xs text-gray-400 mb-1 block">Base ($/ton)</label>
-          <NumInput value={row.baseCostPerTon} onChange={ch('baseCostPerTon')} prefix="$" />
+      </div>
+
+      {/* Outdoor + Indoor unit pricing */}
+      <div className="grid grid-cols-2 gap-3 mt-2">
+        {/* Outdoor Unit — Condenser */}
+        <div className="border border-blue-100 rounded-lg p-3 bg-blue-50/40">
+          <p className="text-xs font-semibold text-blue-700 mb-2">🌡 Outdoor Unit (Condenser)</p>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Base ($/ton)</label>
+              <NumInput
+                value={row.outdoorBaseCostPerTon ?? 0}
+                onChange={ch('outdoorBaseCostPerTon')}
+                prefix="$"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Quoted ($)</label>
+              <NumInput
+                value={row.outdoorQuotedCost == null ? '' : row.outdoorQuotedCost}
+                onChange={(v) => onChange(row.id, 'outdoorQuotedCost', v === 0 ? null : v)}
+                prefix="$" placeholder="optional"
+              />
+            </div>
+          </div>
+          {hasTons && result.outdoorCost > 0 && (
+            <p className="text-xs text-blue-600 mt-1.5 font-medium">
+              = {result.outdoorCost.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}
+            </p>
+          )}
         </div>
-        <div className="col-span-3">
-          <label className="text-xs text-gray-400 mb-1 block">Supplier Quote ($)</label>
-          <NumInput
-            value={row.quotedEquipCost == null ? '' : row.quotedEquipCost}
-            onChange={(v) => onChange(row.id, 'quotedEquipCost', v === 0 ? null : v)}
-            prefix="$" placeholder="optional"
-          />
+
+        {/* Indoor Unit — Air Handler / Evap Coil */}
+        <div className="border border-green-100 rounded-lg p-3 bg-green-50/40">
+          <p className="text-xs font-semibold text-green-700 mb-2">❄️ Indoor Unit (Air Handler / Coil)</p>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Base ($/ton)</label>
+              <NumInput
+                value={row.indoorBaseCostPerTon ?? 0}
+                onChange={ch('indoorBaseCostPerTon')}
+                prefix="$"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Quoted ($)</label>
+              <NumInput
+                value={row.indoorQuotedCost == null ? '' : row.indoorQuotedCost}
+                onChange={(v) => onChange(row.id, 'indoorQuotedCost', v === 0 ? null : v)}
+                prefix="$" placeholder="optional"
+              />
+            </div>
+          </div>
+          {hasTons && result.indoorCost > 0 && (
+            <p className="text-xs text-green-600 mt-1.5 font-medium">
+              = {result.indoorCost.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}
+            </p>
+          )}
         </div>
       </div>
 
@@ -167,19 +214,27 @@ export default function SplitRow({ row, result, index, onChange, onRemove, onDup
       {/* Results */}
       {hasTons && (
         <div className="flex flex-wrap gap-2 px-1 pb-1">
-          <ResultBadge label="Equip. Cost"                    value={result.equipCost}       variant="default" />
+          {result.outdoorCost > 0 && (
+            <ResultBadge label="Outdoor Unit"                   value={result.outdoorCost}     variant="default" />
+          )}
+          {result.indoorCost > 0 && (
+            <ResultBadge label="Indoor Unit"                    value={result.indoorCost}      variant="default" />
+          )}
+          {(result.outdoorCost <= 0 && result.indoorCost <= 0) && (
+            <ResultBadge label="Equip. Cost"                    value={result.equipCost}       variant="default" />
+          )}
           {result.cuLineMaterial > 0 && (
-            <ResultBadge label="CU Line"                      value={result.cuLineMaterial}  variant="material" />
+            <ResultBadge label="CU Line"                        value={result.cuLineMaterial}  variant="material" />
           )}
           {result.refrigCost > 0 && (
-            <ResultBadge label="Refrig. Charge"               value={result.refrigCost}      variant="material" />
+            <ResultBadge label="Refrig. Charge"                 value={result.refrigCost}      variant="material" />
           )}
-          <ResultBadge label="Accessories"                    value={result.accMaterial}     variant="material" />
-          <ResultBadge label={`Misc (${result.miscPct ?? 3}%)`} value={result.miscCost}      variant="default" />
-          <ResultBadge label="Total Material"                 value={result.totalMaterial}   variant="material" />
-          <ResultBadge label="Total Labor"                    value={result.totalLabor}      variant="labor" />
-          <ResultBadge label="Labor Hours"                    value={result.totalHours}      variant="default" />
-          <ResultBadge label="Unit Total"                     value={result.totalCost}       variant="total" />
+          <ResultBadge label="Accessories"                      value={result.accMaterial}     variant="material" />
+          <ResultBadge label={`Misc (${result.miscPct ?? 3}%)`} value={result.miscCost}        variant="default" />
+          <ResultBadge label="Total Material"                   value={result.totalMaterial}   variant="material" />
+          <ResultBadge label="Total Labor"                      value={result.totalLabor}      variant="labor" />
+          <ResultBadge label="Labor Hours"                      value={result.totalHours}      variant="default" />
+          <ResultBadge label="Unit Total"                       value={result.totalCost}       variant="total" />
         </div>
       )}
     </RowWrapper>
