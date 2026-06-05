@@ -77,7 +77,7 @@ export default function RegisterPage() {
                 name="companyName"
                 value={form.companyName}
                 onChange={handleChange}
-                placeholder="Ahmed HVAC Services"
+                placeholder=""
                 required
                 autoFocus
                 className="input w-full"
@@ -93,7 +93,7 @@ export default function RegisterPage() {
                   name="firstName"
                   value={form.firstName}
                   onChange={handleChange}
-                  placeholder="Ahmed"
+                  placeholder=""
                   className="input w-full"
                 />
               </div>
@@ -104,7 +104,7 @@ export default function RegisterPage() {
                   name="lastName"
                   value={form.lastName}
                   onChange={handleChange}
-                  placeholder="Salah"
+                  placeholder=""
                   className="input w-full"
                 />
               </div>
