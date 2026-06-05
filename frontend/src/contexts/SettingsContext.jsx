@@ -120,6 +120,8 @@ function coerceCompanyConfig(data) {
   coerced.ductPrices = data.ductPrices
     ? { ...DEFAULT_DUCT_PRICES, ...data.ductPrices }
     : DEFAULT_DUCT_PRICES;
+  // regionRates is hoisted from ductPrices by the backend normalizeConfig — pass through as-is
+  coerced.regionRates = data.regionRates ?? null;
   return coerced;
 }
 

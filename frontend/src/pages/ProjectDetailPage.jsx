@@ -21,7 +21,7 @@ import {
   ArrowLeft, Building2, Wind, Gauge, Fan, Zap, BarChart3,
   MapPin, Calendar, User, Briefcase, ChevronRight,
   Edit3, Loader2, AlertCircle, CheckCircle2, Clock,
-  Layers, Trash2, X, Save, Users, UserPlus,
+  Layers, Trash2, X, Save, Users, UserPlus, SlidersHorizontal,
 } from 'lucide-react';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -55,6 +55,7 @@ const MODULES = [
   { key: 'METAL_DUCT',        label: 'Metal Duct',        description: 'Rectangular & round ductwork',     route: '/duct',          icon: Wind,      color: 'indigo'  },
   { key: 'DIFFUSER_SCHEDULE', label: 'Diffuser Schedule', description: 'Supply & return diffusers',        route: '/diffuser',      icon: Gauge,     color: 'violet'  },
   { key: 'FAN_SCHEDULE',      label: 'Fan Schedule',      description: 'Exhaust & supply fans',            route: '/fan-schedule',  icon: Fan,       color: 'sky'     },
+  { key: 'VAV_SCHEDULE',      label: 'VAV Schedule',      description: 'Variable air volume boxes',        route: '/vav-schedule',  icon: SlidersHorizontal, color: 'purple'  },
   { key: 'ELECTRIC_HEAT',     label: 'Electric Heat',     description: 'Unit heaters & strip heaters',     route: '/electric-heat', icon: Zap,       color: 'amber'   },
   { key: 'LOUVERS_DAMPERS',  label: 'Louvers & Dampers', description: 'OA/supply/return louvers and fire/smoke/volume/backdraft dampers', route: '/louvers', icon: Wind, color: 'teal' },
 ];
@@ -67,6 +68,7 @@ const COLOR_CLASSES = {
   amber:   { bg: 'bg-amber-50',   border: 'border-amber-100',  icon: 'text-amber-600'   },
   emerald: { bg: 'bg-emerald-50', border: 'border-emerald-100',icon: 'text-emerald-600' },
   teal:    { bg: 'bg-teal-50',    border: 'border-teal-100',   icon: 'text-teal-600'   },
+  purple:  { bg: 'bg-purple-50',  border: 'border-purple-100', icon: 'text-purple-600' },
 };
 
 const STATUS_STYLES = {
@@ -89,16 +91,12 @@ function EditProjectModal({ project, open, onClose, onSaved }) {
       setForm({
         name:             project.name             || '',
         location:         project.location         || '',
-        owner:            project.owner            || '',
         gc:               project.gc               || '',
         bidDate:          project.bidDate ? project.bidDate.slice(0, 10) : '',
         notes:            project.notes            || '',
         status:           project.status           || 'ACTIVE',
         projectType:      project.projectType      || '',
-        area:             project.area             != null ? String(project.area) : '',
         submissionStatus: project.submissionStatus || '',
-        marginPct:        project.marginPct        != null ? String(parseFloat(project.marginPct) * 100) : '',
-        bidValue:         project.bidValue         != null ? String(project.bidValue) : '',
       });
       setError('');
     }
@@ -111,12 +109,7 @@ function EditProjectModal({ project, open, onClose, onSaved }) {
     setSaving(true);
     setError('');
     try {
-      const payload = {
-        ...form,
-        area:      form.area      ? parseFloat(form.area)      : null,
-        marginPct: form.marginPct ? parseFloat(form.marginPct) / 100 : null,
-        bidValue:  form.bidValue  ? parseFloat(form.bidValue)  : null,
-      };
+      const payload = { ...form };
       const updated = await projectsApi.update(project.id, payload);
       onSaved(updated);
       onClose();
@@ -158,10 +151,6 @@ function EditProjectModal({ project, open, onClose, onSaved }) {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Property owner</label>
-              <input name="owner" value={form.owner || ''} onChange={handle} className="input w-full" />
-            </div>
-            <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">General contractor</label>
               <input name="gc" value={form.gc || ''} onChange={handle} className="input w-full" />
             </div>
@@ -198,20 +187,6 @@ function EditProjectModal({ project, open, onClose, onSaved }) {
                 <option value="Not Submitted">Not Submitted</option>
                 <option value="Late">Late</option>
               </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Area (sq ft)</label>
-              <input type="number" name="area" value={form.area || ''} onChange={handle} placeholder="e.g. 45000" className="input w-full" />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Bid value ($)</label>
-              <input type="number" name="bidValue" value={form.bidValue || ''} onChange={handle} placeholder="e.g. 450000" className="input w-full" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Margin %</label>
-              <input type="number" name="marginPct" value={form.marginPct || ''} onChange={handle} placeholder="e.g. 15" step="0.1" className="input w-full" />
             </div>
           </div>
           <div>
@@ -585,6 +560,37 @@ export default function ProjectDetailPage() {
                   <span className="flex items-center gap-1.5"><Briefcase size={13} className="text-gray-400" /> {project.gc}</span>
                 )}
               </div>
+              {(project.projectType || project.submissionStatus) && (
+                <div className="flex flex-wrap items-center gap-2 mt-2">
+                  {project.projectType && (() => {
+                    const TYPE_STYLES = {
+                      COMMERCIAL:   'bg-sky-50    text-sky-700    border-sky-200',
+                      PUBLIC:       'bg-amber-50  text-amber-700  border-amber-200',
+                      MULTI_FAMILY: 'bg-purple-50 text-purple-700 border-purple-200',
+                    };
+                    const TYPE_LABELS = { COMMERCIAL: 'Commercial', PUBLIC: 'Public', MULTI_FAMILY: 'Multi-Family' };
+                    return (
+                      <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${TYPE_STYLES[project.projectType] || 'bg-gray-50 text-gray-500 border-gray-200'}`}>
+                        {TYPE_LABELS[project.projectType] || project.projectType}
+                      </span>
+                    );
+                  })()}
+                  {project.submissionStatus && (() => {
+                    const SUB_STYLES = {
+                      'Pending':       'bg-yellow-50 text-yellow-700 border-yellow-200',
+                      'Submitted':     'bg-blue-50   text-blue-700   border-blue-200',
+                      'Awarded':       'bg-green-50  text-green-700  border-green-200',
+                      'Not Submitted': 'bg-gray-50   text-gray-500   border-gray-200',
+                      'Late':          'bg-red-50    text-red-600    border-red-200',
+                    };
+                    return (
+                      <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${SUB_STYLES[project.submissionStatus] || 'bg-gray-50 text-gray-500 border-gray-200'}`}>
+                        {project.submissionStatus}
+                      </span>
+                    );
+                  })()}
+                </div>
+              )}
               {project.notes && (
                 <p className="mt-2 text-sm text-gray-400 max-w-lg">{project.notes}</p>
               )}

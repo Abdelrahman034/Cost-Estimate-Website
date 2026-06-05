@@ -611,12 +611,6 @@ export default function GeneralModule() {
             <span className="font-mono text-sm text-gray-700">{context.grillCount || 0}</span>
             <span className="text-xs text-gray-400">× $45/grill</span>
           </FieldRow>
-          {s?.airBalance && s.airBalance.required === 'Yes' && (
-            <div className="mt-2 p-3 bg-white rounded-lg border border-gray-100 text-xs text-gray-500">
-              Raw cost: {inputs.airBalance.systemsToBalance}×$450 + {context.grillCount}×$45 = {fmt(s.airBalance.rawCost)}
-              {inputs.airBalance.mercuryProvided === 'Yes' && ` ÷ 3 = ${fmt(s.airBalance.baseCost)}`}
-            </div>
-          )}
           {s?.airBalance && (
             <div className="flex gap-3 mt-3 flex-wrap">
               <ResultBadge label="Base Cost" value={s.airBalance.baseCost} />

@@ -378,15 +378,15 @@ export default function AdminDashboard() {
 
         {/* Module Usage */}
         <Card>
-          <SectionTitle sub="Which estimating modules are used most across all projects">Module Usage Frequency</SectionTitle>
+          <SectionTitle sub="Accumulated cost per module across all projects">Module Cost by Type</SectionTitle>
           {moduleUsage.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={moduleUsage} margin={{ top: 5, right: 10, bottom: 5, left: 10 }}>
+              <BarChart data={moduleUsage} margin={{ top: 5, right: 10, bottom: 5, left: 40 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
                 <XAxis dataKey="module" tick={{ fontSize: 10 }} interval={0} angle={-20} textAnchor="end" height={45} />
-                <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-                <Tooltip formatter={(v) => [v, '# Projects']} />
-                <Bar dataKey="count" radius={[4,4,0,0]}>
+                <YAxis tick={{ fontSize: 11 }} tickFormatter={fmtK} />
+                <Tooltip formatter={(v, _, props) => [fmt(v), `${props.payload.module} (${props.payload.count} projects)`]} />
+                <Bar dataKey="totalCost" radius={[4,4,0,0]}>
                   {moduleUsage.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}
                 </Bar>
               </BarChart>

@@ -1,5 +1,6 @@
 export { default as MetalDuctModule } from './MetalDuct/MetalDuctModule';
 export { FanScheduleModule } from './FanSchedule';
+export { VavScheduleModule } from './VavSchedule';
 export { default as DiffuserModule } from './Diffuser/DiffuserModule';
 export { SummaryModule } from './Summary';
 export { UnitScheduleModule } from './UnitSchedule';

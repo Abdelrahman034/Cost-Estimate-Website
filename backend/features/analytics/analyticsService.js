@@ -38,7 +38,10 @@ async function getAnalytics({ companyId }) {
   const projects = await prisma.project.findMany({
     where:   { companyId },
     orderBy: { createdAt: 'desc' },
-    include: {
+    select: {
+      id: true, name: true, location: true, gc: true, status: true,
+      bidDate: true, createdAt: true, updatedAt: true,
+      bidValue: true, marginPct: true,
       estimates: {
         select: { module: true, totalCost: true, totalMaterial: true, totalLabor: true },
       },
@@ -63,20 +66,31 @@ async function getAnalytics({ companyId }) {
   const enriched = projects.map(p => {
     const area      = normalizeArea(p.location);
     const gc        = (p.gc || '').trim() || 'Unknown GC';
-    const bidValue  = parseFloat(p.reports[0]?.totalBid ?? 0) || 0;
-
-    // Sum estimate totals for this project
+    // Sum estimate totals — keep SUMMARY separate for bid value
     let directCost = 0, material = 0, labor = 0;
+    let summaryTotal = 0;
     for (const e of p.estimates) {
+      if (e.module === 'SUMMARY') {
+        summaryTotal = parseFloat(e.totalCost ?? 0) || 0;
+        continue; // SUMMARY has markup — exclude from direct cost
+      }
       directCost += parseFloat(e.totalCost     ?? 0) || 0;
       material   += parseFloat(e.totalMaterial ?? 0) || 0;
       labor      += parseFloat(e.totalLabor    ?? 0) || 0;
-      moduleUsageMap[e.module] = (moduleUsageMap[e.module] || 0) + 1;
+      if (!moduleUsageMap[e.module]) moduleUsageMap[e.module] = { totalCost: 0, count: 0 };
+      moduleUsageMap[e.module].totalCost += parseFloat(e.totalCost ?? 0) || 0;
+      moduleUsageMap[e.module].count     += 1;
     }
 
-    const margin = (bidValue > 0 && directCost > 0)
-      ? ((bidValue - directCost) / bidValue) * 100
-      : null;
+    // Bid value: project row (synced on Summary save) → SUMMARY estimate → reports table
+    const bidValue = parseFloat(p.bidValue ?? 0) || summaryTotal || parseFloat(p.reports[0]?.totalBid ?? 0) || 0;
+
+    // Margin: stored marginPct → compute from bidValue vs directCost
+    const margin = p.marginPct != null
+      ? parseFloat(p.marginPct) * 100
+      : (bidValue > 0 && directCost > 0)
+        ? ((bidValue - directCost) / bidValue) * 100
+        : null;
 
     if (bidValue   > 0) totalBidValue   += bidValue;
     if (directCost > 0) totalDirectCost += directCost;
@@ -157,13 +171,15 @@ async function getAnalytics({ companyId }) {
     if (b) { b.count++; b.value += p.bidValue; }
   }
 
-  // 7. Module usage sorted
+  // 7. Module accumulated cost sorted
   const moduleUsage = Object.entries(moduleUsageMap)
-    .map(([module, count]) => ({
-      module: module.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+    .filter(([module]) => module !== 'SUMMARY')          // exclude SUMMARY (contains markup, not a direct cost module)
+    .map(([module, { totalCost, count }]) => ({
+      module:    module.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+      totalCost: Math.round(totalCost),
       count,
     }))
-    .sort((a, b) => b.count - a.count);
+    .sort((a, b) => b.totalCost - a.totalCost);
 
   // 8. Pipeline (has estimates, no report/bid yet)
   const pipeline      = enriched.filter(p => p.estimateCount > 0 && p.reportCount === 0);

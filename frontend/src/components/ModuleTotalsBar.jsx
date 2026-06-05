@@ -23,7 +23,14 @@ const fmtHrs = (n) =>
     ? null
     : `${Number(n).toLocaleString('en-US', { maximumFractionDigits: 1 })} hrs`;
 
-export default function ModuleTotalsBar({ material, labor, total, hours, label }) {
+export default function ModuleTotalsBar() {
+  // Removed per request — the per-module sticky totals strip is no longer shown.
+  // Totals remain available at the bottom of each module and in Bid Summary.
+  return null;
+}
+
+// eslint-disable-next-line no-unused-vars
+function _ModuleTotalsBarLegacy({ material, labor, total, hours, label }) {
   const hasData = Number(total) > 0;
   if (!hasData) return null;
 

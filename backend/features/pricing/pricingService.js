@@ -30,13 +30,21 @@ const DEFAULTS = {
   ductPrices:          null,
 };
 
-// ── Normalize response — expose accessoryPriceOverrides alias ────────────────
-// The DB column is accessoryOverrides; the frontend uses accessoryPriceOverrides.
-// We expose both keys so the frontend context can read it by the new name.
+// ── Normalize response ────────────────────────────────────────────────────────
+// 1. Expose accessoryPriceOverrides alias (DB col = accessoryOverrides).
+// 2. Hoist regionRates out of ductPrices so the frontend reads config.regionRates directly.
 function normalizeConfig(config) {
   if (!config) return config;
+  const ductPrices   = config.ductPrices ?? null;
+  const regionRates  = ductPrices?.regionRates ?? null;
+  // Return ductPrices without the regionRates key (keep them separate for clarity)
+  const ductPricesClean = ductPrices
+    ? (({ regionRates: _r, ...rest }) => rest)(ductPrices)  // eslint-disable-line no-unused-vars
+    : null;
   return {
     ...config,
+    ductPrices:             ductPricesClean,
+    regionRates,
     accessoryPriceOverrides: config.accessoryOverrides ?? {},
   };
 }
@@ -60,6 +68,7 @@ async function upsertPricingConfig({ companyId, data }) {
     'accessoryOverrides','unitPricingTables','ductPricingTables',
     'pipePricingTables','fanPricingTables','diffuserPricing','louverPricing',
     'copperSettings','ductPrices',
+    // regionRates is NOT a separate DB column — handled below by embedding in ductPrices
   ];
 
   const payload = {};
@@ -69,6 +78,12 @@ async function upsertPricingConfig({ companyId, data }) {
   // Accept the frontend's alias name and map it to the DB field
   if (data.accessoryPriceOverrides !== undefined && payload.accessoryOverrides === undefined) {
     payload.accessoryOverrides = data.accessoryPriceOverrides;
+  }
+
+  // regionRates is stored inside ductPrices JSON to avoid a separate column/migration
+  if (data.regionRates !== undefined) {
+    const existingDuctPrices = payload.ductPrices ?? null;
+    payload.ductPrices = { ...(existingDuctPrices ?? {}), regionRates: data.regionRates };
   }
 
   const result = await prisma.pricingConfig.upsert({

@@ -116,29 +116,55 @@ async function upsertEstimate({ projectId, companyId, userId, data }) {
   if (totalHours    !== undefined) payload.totalHours    = totalHours    ?? null;
   if (totalCost     !== undefined) payload.totalCost     = totalCost     ?? null;
 
+  let result;
   if (existing) {
-    return prisma.estimate.update({
+    result = await prisma.estimate.update({
       where: { id: existing.id },
       data:  payload,
     });
+  } else {
+    result = await prisma.estimate.create({
+      data: {
+        projectId,
+        scenarioId,
+        createdById:   userId,
+        module,
+        settings:      settings      ?? {},
+        rowsJson:      rowsJson      ?? null,
+        pricesJson:    pricesJson    ?? null,
+        totalsJson:    totalsJson    ?? null,
+        totalMaterial: totalMaterial ?? null,
+        totalLabor:    totalLabor    ?? null,
+        totalHours:    totalHours    ?? null,
+        totalCost:     totalCost     ?? null,
+      },
+    });
   }
 
-  return prisma.estimate.create({
-    data: {
-      projectId,
-      scenarioId,
-      createdById:   userId,
-      module,
-      settings:      settings      ?? {},
-      rowsJson:      rowsJson      ?? null,
-      pricesJson:    pricesJson    ?? null,
-      totalsJson:    totalsJson    ?? null,
-      totalMaterial: totalMaterial ?? null,
-      totalLabor:    totalLabor    ?? null,
-      totalHours:    totalHours    ?? null,
-      totalCost:     totalCost     ?? null,
-    },
-  });
+  // When the SUMMARY module is saved, sync bidValue and marginPct onto the project row
+  // so the Projects list table always shows the live final bid.
+  if (module === 'SUMMARY' && totalCost != null) {
+    const bidVal   = parseFloat(totalCost) || null;
+    const allEsts  = await prisma.estimate.findMany({
+      where:  { projectId, scenarioId },
+      select: { module: true, totalCost: true },
+    });
+    const directCost = allEsts
+      .filter(e => e.module !== 'SUMMARY')
+      .reduce((s, e) => s + (parseFloat(e.totalCost) || 0), 0);
+    const marginPct = (bidVal && bidVal > 0 && directCost > 0)
+      ? (bidVal - directCost) / bidVal
+      : null;
+    await prisma.project.update({
+      where: { id: projectId },
+      data:  {
+        bidValue:  bidVal,
+        marginPct: marginPct != null ? parseFloat(marginPct.toFixed(4)) : null,
+      },
+    });
+  }
+
+  return result;
 }
 
 // ── Delete an estimate ────────────────────────────────────────────────────────

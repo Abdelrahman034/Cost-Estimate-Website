@@ -105,7 +105,7 @@ export const DEFAULT_SECTOR_CONFIG = {
   'Multi Family':{ matTaxPct: 0.0825, bidAddPct: 0.00,  notes: '' },
 };
 
-export function calcSummary(schedules = {}, settings = {}, coolingTons = 0, marginAdj = DEFAULT_MARGIN_ADJ, sectorConfig = DEFAULT_SECTOR_CONFIG) {
+export function calcSummary(schedules = {}, settings = {}, coolingTons = 0, marginAdj = DEFAULT_MARGIN_ADJ, sectorConfig = DEFAULT_SECTOR_CONFIG, regionRates = null) {
   const {
     jobSector  = 'Commercial',
     margin     = 'M',
@@ -128,8 +128,10 @@ export function calcSummary(schedules = {}, settings = {}, coolingTons = 0, marg
   const tons = Math.max(Number(coolingTons) || 1, 1);
 
   // Region multiplier — Excel D7
-  const regionRow       = REGION_TABLE.find(r => r.region === region) ?? REGION_TABLE[4];
-  const laborMultiplier = regionRow.multiplier;
+  // Prefer saved regionRates from company settings over the hardcoded REGION_TABLE
+  const effectiveTable  = (Array.isArray(regionRates) && regionRates.length > 0) ? regionRates : REGION_TABLE;
+  const regionRow       = effectiveTable.find(r => r.region === region) ?? REGION_TABLE[4];
+  const laborMultiplier = Number(regionRow.multiplier) || 1;
   const quickTurnFactor = quickTurn === 'y' ? 1.4 : 1;
 
   // Sum raw schedule mat/labor

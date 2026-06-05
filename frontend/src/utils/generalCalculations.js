@@ -307,9 +307,9 @@ export function calcAirBalance({ required, mercuryProvided, systemsToBalance, gr
   const divisor   = Number(mercuryDivisor ?? DEFAULTS.airBalance.mercuryDivisor);
   const ir        = Number(incRate        ?? DEFAULTS.airBalance.incRate);
 
-  // Excel: $450/system + $45/grill, ÷3 when Mercury provides
+  // $450/system + $45/grill — no divisor applied
   const rawCost   = systems * sysRate + grills * grillRate;
-  const baseCost  = req ? r2(rawCost / (mercury ? divisor : 1)) : 0;
+  const baseCost  = req ? r2(rawCost) : 0;
   const incCost   = r2(baseCost * ir);
   const totalCost = r2(baseCost + incCost);
 

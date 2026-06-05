@@ -19,6 +19,10 @@ export const projectsApi = {
   create: (data) =>
     api.post('/projects', data).then(r => r.data),
 
+  // Duplicate a bid — deep-copies the project + estimates into a new draft
+  clone: (id) =>
+    api.post(`/projects/${id}/clone`).then(r => r.data),
+
   // Partial update — send only the fields you want to change
   update: (id, data) =>
     api.patch(`/projects/${id}`, data).then(r => r.data),

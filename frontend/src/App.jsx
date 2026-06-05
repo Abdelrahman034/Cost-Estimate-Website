@@ -20,7 +20,7 @@ import {
   MetalDuctModule, DiffuserModule, FanScheduleModule,
   SummaryModule, UnitScheduleModule, SupplierRFQModule,
   ScenarioModule, ChangeLogModule, ProposalPdfModule, ElectricHeatModule,
-  GeneralModule,
+  GeneralModule, VavScheduleModule,
 } from '@modules';
 import LouversModule from '@modules/LouversAndDampers/LouversModule';
 import SettingsPage    from '@pages/SettingsPage';
@@ -63,6 +63,7 @@ function AppShell() {
             <Route path={ROUTE_PATHS.DIFFUSER}         element={<DiffuserModule />} />
             <Route path={ROUTE_PATHS.UNIT_SCHEDULE}    element={<UnitScheduleModule projectInfo={projectInfo} />} />
             <Route path={ROUTE_PATHS.FAN_SCHEDULE}     element={<FanScheduleModule />} />
+            <Route path={ROUTE_PATHS.VAV_SCHEDULE}     element={<VavScheduleModule />} />
             <Route path={ROUTE_PATHS.ELEC_HEAT}        element={<ElectricHeatModule />} />
             <Route path={ROUTE_PATHS.LOUVERS}          element={<LouversModule />} />
             <Route path={ROUTE_PATHS.SUPPLIER_RFQ}     element={<SupplierRFQModule projectInfo={projectInfo} />} />

@@ -17,7 +17,7 @@ export const MODULE_META = [
   { key: 'metal_duct',    label: 'Metal Duct',        color: 'orange', route: '/duct'          },
   { key: 'diffuser',      label: 'Diffuser Schedule', color: 'green',  route: '/diffuser'      },
   { key: 'fan_schedule',  label: 'Fan Schedule',      color: 'cyan',   route: '/fan-schedule'  },
-  { key: 'vav_schedule',  label: 'VAV Schedule',      color: 'purple', route: '/unit-schedule' },
+  { key: 'vav_schedule',  label: 'VAV Schedule',      color: 'purple', route: '/vav-schedule' },
   { key: 'elec_heat',     label: 'Electric Heat',     color: 'red',    route: '/electric-heat' },
 ];
 

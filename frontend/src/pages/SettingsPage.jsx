@@ -10,6 +10,7 @@
 
 import React, { useState, useContext, useEffect, useCallback } from 'react';
 import { SettingsContext, DEFAULT_COPPER_SETTINGS, DEFAULT_ACCESSORY_OVERRIDES } from '@contexts/SettingsContext';
+import { REGION_TABLE } from '@utils/summaryCalculations';
 import { useAuth } from '@contexts/AuthContext';
 import PriceSettings from '@modules/MetalDuct/PriceSettings';
 import AccessoryPriceSettings from '@modules/UnitSchedule/AccessoryPriceSettings';
@@ -724,6 +725,76 @@ export default function SettingsPage() {
                 value={config.ratePipe} onChange={v => set('ratePipe', v)} />
               <RateInput label="Electrical / Controls" hint="Controls and electrical connections"
                 value={config.rateElec} onChange={v => set('rateElec', v)} />
+            </div>
+          </div>
+
+          {/* ── Region Labor Multipliers ──────────────────────────────────── */}
+          <div className="bg-white border border-gray-200 rounded-xl p-6">
+            <div className="flex items-center justify-between mb-1">
+              <h2 className="font-semibold text-gray-900">Region Labor Multipliers</h2>
+              <button
+                type="button"
+                onClick={() => set('regionRates', REGION_TABLE.map(r => ({ region: r.region, multiplier: r.multiplier })))}
+                className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+              >
+                Reset to defaults
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 mb-5">
+              Applied to all labor costs in the Bid Summary based on the project's region.
+              1.00 = no adjustment, 1.10 = +10%, 0.90 = −10%.
+            </p>
+            <div className="overflow-hidden rounded-lg border border-gray-200">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200">
+                    <th className="text-left px-4 py-2.5 font-semibold text-gray-600 text-xs">Region</th>
+                    <th className="text-right px-4 py-2.5 font-semibold text-gray-600 text-xs">Multiplier</th>
+                    <th className="text-right px-4 py-2.5 font-semibold text-gray-600 text-xs w-24">Effect</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {(() => {
+                    // Merge saved rates over defaults so any new region from REGION_TABLE still shows
+                    const savedRates = config.regionRates ?? [];
+                    const rows = REGION_TABLE.map(defaultRow => {
+                      const saved = savedRates.find(r => r.region === defaultRow.region);
+                      return { region: defaultRow.region, multiplier: saved ? saved.multiplier : defaultRow.multiplier };
+                    });
+
+                    const updateRegion = (region, newMultiplier) => {
+                      const updated = rows.map(r =>
+                        r.region === region ? { ...r, multiplier: newMultiplier } : r
+                      );
+                      set('regionRates', updated);
+                    };
+
+                    return rows.map(row => {
+                      const pct = ((row.multiplier - 1) * 100).toFixed(0);
+                      const effectCls = row.multiplier > 1 ? 'text-amber-600' : row.multiplier < 1 ? 'text-blue-600' : 'text-gray-400';
+                      return (
+                        <tr key={row.region} className="hover:bg-gray-50/60">
+                          <td className="px-4 py-2.5 font-medium text-gray-800">{row.region}</td>
+                          <td className="px-4 py-2.5 text-right">
+                            <input
+                              type="number"
+                              min="0.5"
+                              max="2"
+                              step="0.01"
+                              value={row.multiplier}
+                              onChange={e => updateRegion(row.region, parseFloat(e.target.value) || 1)}
+                              className="input text-sm text-right w-24 py-1"
+                            />
+                          </td>
+                          <td className={`px-4 py-2.5 text-right text-xs font-semibold tabular-nums ${effectCls}`}>
+                            {row.multiplier === 1 ? 'No change' : `${pct > 0 ? '+' : ''}${pct}%`}
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })()}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>

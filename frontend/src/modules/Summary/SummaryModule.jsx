@@ -218,10 +218,10 @@ function ModuleBreakdown({ estimates }) {
 }
 
 // ─── ENGINEERING KPI ROW ──────────────────────────────────────────────────────
-function EngineeringKpis({ totalTons, ductWeight, ductArea }) {
+function EngineeringKpis({ totalTons, ductWeight, ductArea, totalLaborHours }) {
   const fmtn = (n, unit) => n > 0 ? `${n.toLocaleString(undefined, { maximumFractionDigits: 1 })} ${unit}` : '—';
   return (
-    <div className="grid grid-cols-3 gap-3 mb-5">
+    <div className="grid grid-cols-4 gap-3 mb-5">
       <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3">
         <div className="text-[11px] font-semibold uppercase tracking-wider text-sky-500 mb-1">Total Cooling Tons</div>
         <div className="text-xl font-bold font-mono text-sky-800">{totalTons > 0 ? `${totalTons.toLocaleString()} tons` : '—'}</div>
@@ -236,6 +236,11 @@ function EngineeringKpis({ totalTons, ductWeight, ductArea }) {
         <div className="text-[11px] font-semibold uppercase tracking-wider text-violet-500 mb-1">Total Duct Area</div>
         <div className="text-xl font-bold font-mono text-violet-800">{fmtn(ductArea, 'sq ft')}</div>
         <div className="text-[11px] text-violet-400 mt-0.5">from Metal Duct</div>
+      </div>
+      <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-emerald-500 mb-1">Total Labor Hours</div>
+        <div className="text-xl font-bold font-mono text-emerald-800">{fmtn(totalLaborHours, 'hrs')}</div>
+        <div className="text-[11px] text-emerald-400 mt-0.5">all modules</div>
       </div>
     </div>
   );
@@ -257,6 +262,7 @@ export function SummaryModule({ projectInfo = {} }) {
   const [allEstimates,    setAllEstimates]    = useState([]);
   const [ductWeight,      setDuctWeight]      = useState(0);
   const [ductArea,        setDuctArea]        = useState(0);
+  const [totalLaborHours, setTotalLaborHours] = useState(0);
 
   // ── Auto-match region from project location ────────────────────────────────
   useEffect(() => {
@@ -360,6 +366,10 @@ export function SummaryModule({ projectInfo = {} }) {
         } catch { /* silent */ }
       }
 
+      // Aggregate total labor hours from all module estimates
+      const hoursTotal = estimates.reduce((sum, est) => sum + (Number(est.totalHours) || 0), 0);
+      setTotalLaborHours(hoursTotal);
+
       setAllEstimates(estimates);
       setSchedules(newSchedules);
       setSyncedKeys(newSynced);
@@ -392,6 +402,15 @@ export function SummaryModule({ projectInfo = {} }) {
         totalMaterial: result.totalMat,
         totalLabor:    result.totalLabor,
         totalCost:     result.mercury.total,  // final bid (includes overhead, profit, tax)
+        totalsJson: {
+          bid:        result.mercury.bid,
+          tax:        result.mercury.tax,
+          total:      result.mercury.total,
+          directCost: result.totalCost,
+          margin:     result.mercury.margin,
+          region:     settings.region,
+          jobSector:  settings.jobSector,
+        },
       });
     }, 800);
     return () => clearTimeout(timer);
@@ -420,7 +439,7 @@ export function SummaryModule({ projectInfo = {} }) {
     'Multi Family': pricingConfig?.sectorMultiFamily  ?? undefined,
   };
 
-  const result = calcSummary(schedules, settings, tons, marginAdj, sectorConfig);
+  const result = calcSummary(schedules, settings, tons, marginAdj, sectorConfig, pricingConfig?.regionRates ?? null);
 
   const exportCSV = () => {
     const lines = [
@@ -521,7 +540,7 @@ export function SummaryModule({ projectInfo = {} }) {
 
       {/* ── Engineering KPIs ──────────────────────────────────────────────── */}
       {projectId && (
-        <EngineeringKpis totalTons={tons} ductWeight={ductWeight} ductArea={ductArea} />
+        <EngineeringKpis totalTons={tons} ductWeight={ductWeight} ductArea={ductArea} totalLaborHours={totalLaborHours} />
       )}
 
       {/* ── Global Settings ───────────────────────────────────────────────── */}
@@ -579,11 +598,20 @@ export function SummaryModule({ projectInfo = {} }) {
               value={settings.region}
               onChange={e => { setSetting('region', e.target.value); setRegionAutoSet(false); }}
             >
-              {REGION_TABLE.map(r => (
-                <option key={r.region} value={r.region}>
-                  {r.region === 'Other' ? 'Other (×1.00)' : `${r.region} (×${r.multiplier})`}
-                </option>
-              ))}
+              {(() => {
+                const savedRates = pricingConfig?.regionRates;
+                const effectiveTable = (Array.isArray(savedRates) && savedRates.length > 0)
+                  ? REGION_TABLE.map(r => {
+                      const saved = savedRates.find(s => s.region === r.region);
+                      return saved ? { ...r, multiplier: saved.multiplier } : r;
+                    })
+                  : REGION_TABLE;
+                return effectiveTable.map(r => (
+                  <option key={r.region} value={r.region}>
+                    {`${r.region} (×${Number(r.multiplier).toFixed(2)})`}
+                  </option>
+                ));
+              })()}
             </select>
           </div>
         </div>

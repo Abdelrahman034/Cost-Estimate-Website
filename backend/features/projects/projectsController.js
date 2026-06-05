@@ -53,6 +53,21 @@ async function create(req, res) {
   }
 }
 
+// POST /api/projects/:id/clone
+async function clone(req, res) {
+  try {
+    const project = await service.cloneProject({
+      id:        req.params.id,
+      companyId: req.user.companyId,
+      userId:    req.user.userId,
+      role:      req.user.role,
+    });
+    res.status(201).json(project);
+  } catch (err) {
+    sendError(res, err);
+  }
+}
+
 // PATCH /api/projects/:id
 async function update(req, res) {
   try {
@@ -173,4 +188,4 @@ async function resetSettings(req, res) {
   }
 }
 
-module.exports = { list, getOne, create, update, remove, getMembers, addMember, removeMember, getSettings, saveSettings, resetSettings };
+module.exports = { list, getOne, create, clone, update, remove, getMembers, addMember, removeMember, getSettings, saveSettings, resetSettings };

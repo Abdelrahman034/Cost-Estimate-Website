@@ -11,6 +11,7 @@ router.use(requireAuth);
 router.get('/',    controller.list);
 router.post('/',   validateCreateProject, controller.create);
 router.get('/:id', controller.getOne);
+router.post('/:id/clone', controller.clone);   // duplicate a bid
 router.patch('/:id', validateUpdateProject, controller.update);
 router.put('/:id',   validateUpdateProject, controller.update);   // frontend uses PUT
 router.delete('/:id', controller.remove);

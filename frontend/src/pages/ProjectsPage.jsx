@@ -10,7 +10,7 @@ import { projectsApi } from '@services/projectsApi';
 import { useAuth } from '@contexts/AuthContext';
 import {
   FolderOpen, Plus, Search, Loader2, AlertCircle,
-  ChevronRight, X,
+  ChevronRight, X, Copy, Trash2,
 } from 'lucide-react';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -183,6 +183,8 @@ export default function ProjectsPage() {
   const [error,    setError]    = useState('');
   const [search,   setSearch]   = useState('');
   const [modal,    setModal]    = useState(false);
+  const [cloningId, setCloningId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -201,16 +203,47 @@ export default function ProjectsPage() {
 
   const handleCreated = (project) => setProjects(prev => [project, ...prev]);
 
-  // Quick status update — inline dropdown on project list row
-  const handleStatusChange = useCallback(async (projectId, newStatus) => {
-    setProjects(prev => prev.map(p => p.id === projectId ? { ...p, status: newStatus } : p));
+  // Duplicate a bid — clones the project + all estimates into a new draft
+  const handleClone = useCallback(async (projectId) => {
+    setCloningId(projectId);
     try {
-      await projectsApi.update(projectId, { status: newStatus });
+      const copy = await projectsApi.clone(projectId);
+      setProjects(prev => [copy, ...prev]);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not duplicate project.');
+    } finally {
+      setCloningId(null);
+    }
+  }, []);
+
+  // Delete a project — used to undo an accidental duplicate, or remove any bid
+  const handleDelete = useCallback(async (project) => {
+    const ok = window.confirm(`Delete "${project.name}"? This permanently removes the project and all its estimates. This cannot be undone.`);
+    if (!ok) return;
+    setDeletingId(project.id);
+    try {
+      await projectsApi.remove(project.id);
+      setProjects(prev => prev.filter(p => p.id !== project.id));
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not delete project.');
+    } finally {
+      setDeletingId(null);
+    }
+  }, []);
+
+  // Quick inline field update helper
+  const handleFieldChange = useCallback(async (projectId, field, value) => {
+    setProjects(prev => prev.map(p => p.id === projectId ? { ...p, [field]: value || null } : p));
+    try {
+      await projectsApi.update(projectId, { [field]: value || null });
     } catch {
-      // Revert optimistic update on failure
       load();
     }
   }, [load]);
+
+  const handleStatusChange     = useCallback((id, v) => handleFieldChange(id, 'status',           v), [handleFieldChange]);
+  const handleTypeChange       = useCallback((id, v) => handleFieldChange(id, 'projectType',      v), [handleFieldChange]);
+  const handleSubmissionChange = useCallback((id, v) => handleFieldChange(id, 'submissionStatus', v), [handleFieldChange]);
 
   // Filter + keep server-side sort (bidDate asc)
   const filtered = useMemo(() => {
@@ -311,6 +344,7 @@ export default function ProjectsPage() {
                   <th className="text-right px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">Man-hrs</th>
                   <th className="text-right px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">Bid Value</th>
                   <th className="text-right px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">Margin %</th>
+                  <th className="text-center px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">Actions</th>
                   <th className="px-3 py-3 w-8"></th>
                 </tr>
               </thead>
@@ -335,11 +369,19 @@ export default function ProjectsPage() {
                         {p.location && <div className="text-xs text-gray-400 truncate">{p.location}</div>}
                       </td>
 
-                      {/* Type */}
-                      <td className="px-3 py-3 whitespace-nowrap">
-                        {typeMeta
-                          ? <Badge label={typeMeta.label} cls={typeMeta.cls} />
-                          : <span className="text-gray-300 text-xs">—</span>}
+                      {/* Type — inline dropdown */}
+                      <td className="px-3 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                        <select
+                          value={p.projectType || ''}
+                          onChange={e => handleTypeChange(p.id, e.target.value)}
+                          className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border cursor-pointer appearance-none text-center focus:outline-none ${typeMeta ? typeMeta.cls : 'bg-gray-50 text-gray-400 border-gray-200'}`}
+                          title="Change project type"
+                        >
+                          <option value="">— type —</option>
+                          {Object.entries(TYPE_META).map(([val, meta]) => (
+                            <option key={val} value={val}>{meta.label}</option>
+                          ))}
+                        </select>
                       </td>
 
                       {/* Status — inline quick-change dropdown */}
@@ -356,11 +398,19 @@ export default function ProjectsPage() {
                         </select>
                       </td>
 
-                      {/* Submission */}
-                      <td className="px-3 py-3 whitespace-nowrap">
-                        {p.submissionStatus
-                          ? <Badge label={p.submissionStatus} cls={subCls} />
-                          : <span className="text-gray-300 text-xs">—</span>}
+                      {/* Submission — inline dropdown */}
+                      <td className="px-3 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                        <select
+                          value={p.submissionStatus || ''}
+                          onChange={e => handleSubmissionChange(p.id, e.target.value)}
+                          className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border cursor-pointer appearance-none text-center focus:outline-none ${subCls || 'bg-gray-50 text-gray-400 border-gray-200'}`}
+                          title="Change submission status"
+                        >
+                          <option value="">— status —</option>
+                          {Object.keys(SUBMISSION_META).map(val => (
+                            <option key={val} value={val}>{val}</option>
+                          ))}
+                        </select>
                       </td>
 
                       {/* Due date */}
@@ -408,6 +458,33 @@ export default function ProjectsPage() {
                         ) : (
                           <span className="text-gray-300">—</span>
                         )}
+                      </td>
+
+                      {/* Actions: Duplicate + Delete */}
+                      <td className="px-3 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            onClick={() => handleClone(p.id)}
+                            disabled={cloningId === p.id || deletingId === p.id}
+                            title="Duplicate this bid"
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 hover:bg-blue-100 transition-colors disabled:opacity-50"
+                          >
+                            {cloningId === p.id
+                              ? <Loader2 size={14} className="animate-spin" />
+                              : <Copy size={14} />}
+                            <span>Duplicate</span>
+                          </button>
+                          <button
+                            onClick={() => handleDelete(p)}
+                            disabled={deletingId === p.id || cloningId === p.id}
+                            title="Delete this project"
+                            className="inline-flex items-center justify-center p-1.5 rounded-md text-red-500 bg-red-50 border border-red-200 hover:bg-red-100 transition-colors disabled:opacity-50"
+                          >
+                            {deletingId === p.id
+                              ? <Loader2 size={14} className="animate-spin" />
+                              : <Trash2 size={14} />}
+                          </button>
+                        </div>
                       </td>
 
                       {/* Arrow */}

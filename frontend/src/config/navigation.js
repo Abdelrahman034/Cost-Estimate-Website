@@ -12,6 +12,7 @@ import {
   Zap,
   ShieldCheck,
   FolderOpen,
+  SlidersHorizontal,
 } from 'lucide-react';
 
 export const ROUTE_PATHS = {
@@ -23,6 +24,7 @@ export const ROUTE_PATHS = {
   DIFFUSER:        '/diffuser',
   UNIT_SCHEDULE:   '/unit-schedule',
   FAN_SCHEDULE:    '/fan-schedule',
+  VAV_SCHEDULE:    '/vav-schedule',
   ELEC_HEAT:       '/electric-heat',
   LOUVERS:         '/louvers',
   SUPPLIER_RFQ:    '/supplier-rfq',
@@ -51,6 +53,7 @@ export const NAV_SECTIONS = [
       { to: ROUTE_PATHS.DIFFUSER,      label: 'Diffuser Schedule',      icon: Gauge     },
       { to: ROUTE_PATHS.UNIT_SCHEDULE, label: 'Unit Schedule',          icon: Building2 },
       { to: ROUTE_PATHS.FAN_SCHEDULE,  label: 'Fan Schedule',           icon: Fan       },
+      { to: ROUTE_PATHS.VAV_SCHEDULE,  label: 'VAV Schedule',           icon: SlidersHorizontal },
       { to: ROUTE_PATHS.ELEC_HEAT,     label: 'Electric Unit Heaters',  icon: Zap       },
       { to: ROUTE_PATHS.LOUVERS,       label: 'Louvers & Dampers',      icon: Wind      },
       { to: ROUTE_PATHS.SUPPLIER_RFQ,  label: 'Supplier RFQ',           icon: Package   },
