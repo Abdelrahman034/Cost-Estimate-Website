@@ -1,7 +1,7 @@
 // features/projects/projectsRoutes.js
 
 const router     = require('express').Router();
-const { requireAuth, requireRole } = require('../../middleware/auth');
+const { requireAuth, requireOwner } = require('../../middleware/auth');
 const { validateCreateProject, validateUpdateProject } = require('./projectsValidation');
 const controller = require('./projectsController');
 
@@ -17,9 +17,9 @@ router.put('/:id',   validateUpdateProject, controller.update);   // frontend us
 router.delete('/:id', controller.remove);
 
 // Member management — admin only
-router.get('/:id/members',             requireRole('ADMIN'), controller.getMembers);
-router.post('/:id/members',            requireRole('ADMIN'), controller.addMember);
-router.delete('/:id/members/:userId',  requireRole('ADMIN'), controller.removeMember);
+router.get('/:id/members',             requireOwner, controller.getMembers);
+router.post('/:id/members',            requireOwner, controller.addMember);
+router.delete('/:id/members/:userId',  requireOwner, controller.removeMember);
 
 // Per-project settings overrides — any authenticated member of the project
 // GET returns current overrides; PUT saves new overrides; DELETE resets to company defaults

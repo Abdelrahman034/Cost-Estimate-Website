@@ -66,7 +66,7 @@ router.post('/register', async (req, res) => {
           passwordHash,
           firstName,
           lastName,
-          role: 'ADMIN', // first user is always admin
+          role: 'OWNER', // first user is always owner
         },
       });
 

@@ -10,14 +10,12 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
-
 // ─────────────────────────────────────────────────────────────────────────────
 // ENUMS
 // ─────────────────────────────────────────────────────────────────────────────
 
 enum Role {
-  ADMIN      // Full access: manage users, pricing, all projects
-  ESTIMATOR  // Create/edit estimates and projects
+  OWNER      // Full access: manage users, roles, pricing, all projects
 }
 
 enum InviteStatus {
@@ -91,6 +89,7 @@ model Company {
   pricingConfig PricingConfig?
   priceHistory  PriceHistory[]
   reports       Report[]
+  customRoles   CustomRole[]
 
   @@map("companies")
 }
@@ -102,7 +101,8 @@ model User {
   passwordHash String   @map("password_hash")
   firstName    String?  @map("first_name")
   lastName     String?  @map("last_name")
-  role         Role     @default(ESTIMATOR)
+  role         Role?    // OWNER = full access; null = custom role user
+  customRoleId String?  @map("custom_role_id")
   isActive     Boolean  @default(true) @map("is_active")
   lastLoginAt  DateTime? @map("last_login_at")
   createdAt    DateTime @default(now()) @map("created_at")
@@ -110,6 +110,7 @@ model User {
 
   // Relations
   company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customRole    CustomRole?    @relation(fields: [customRoleId], references: [id], onDelete: SetNull)
   refreshTokens RefreshToken[]
   projects      Project[]      @relation("ProjectCreator")
   memberships   ProjectMember[] @relation("ProjectMemberships")
@@ -137,22 +138,40 @@ model RefreshToken {
 }
 
 model Invite {
-  id          String       @id @default(cuid())
-  companyId   String       @map("company_id")
-  email       String
-  role        Role         @default(ESTIMATOR)
-  token       String       @unique @default(cuid())
-  status      InviteStatus @default(PENDING)
-  invitedById String?      @map("invited_by_id")
-  expiresAt   DateTime     @map("expires_at")
-  acceptedAt  DateTime?    @map("accepted_at")
-  createdAt   DateTime     @default(now()) @map("created_at")
+  id           String       @id @default(cuid())
+  companyId    String       @map("company_id")
+  email        String
+  role         Role?        // OWNER if inviting an owner; null for custom-role invites
+  customRoleId String?      @map("custom_role_id")
+  token        String       @unique @default(cuid())
+  status       InviteStatus @default(PENDING)
+  invitedById  String?      @map("invited_by_id")
+  expiresAt    DateTime     @map("expires_at")
+  acceptedAt   DateTime?    @map("accepted_at")
+  createdAt    DateTime     @default(now()) @map("created_at")
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company    Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customRole CustomRole? @relation(fields: [customRoleId], references: [id], onDelete: SetNull)
 
   @@index([companyId])
   @@index([token])
   @@map("invites")
+}
+
+model CustomRole {
+  id          String   @id @default(cuid())
+  companyId   String   @map("company_id")
+  name        String
+  permissions Json     @default("[]") // array of permission keys e.g. ["DUCT","VAV_SCHEDULE"]
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt      @map("updated_at")
+
+  company Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  users   User[]
+  invites Invite[]
+
+  @@index([companyId])
+  @@map("custom_roles")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

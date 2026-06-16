@@ -33,7 +33,7 @@ export default function ProtectedRoute({ children, allowedRoles }) {
 
   // Authenticated but wrong role
   if (allowedRoles && !allowedRoles.includes(user.role)) {
-    return <Navigate to={user.role === 'ADMIN' ? '/company' : '/projects'} replace />;
+    return <Navigate to={user.role === 'OWNER' ? '/company' : '/projects'} replace />;
   }
 
   return children;

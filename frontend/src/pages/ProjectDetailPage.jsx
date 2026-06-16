@@ -394,10 +394,9 @@ function ProjectMembersPanel({ projectId, initialMembers = [] }) {
                 <div className="text-xs text-gray-400 truncate">{m.user.email}</div>
               </div>
               <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
-                m.user.role === 'ADMIN'     ? 'bg-purple-50 text-purple-700 border-purple-200' :
-                m.user.role === 'ESTIMATOR' ? 'bg-blue-50 text-blue-700 border-blue-200' :
-                                              'bg-gray-50 text-gray-600 border-gray-200'
-              }`}>{m.user.role}</span>
+                m.user.role === 'OWNER' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                                          'bg-blue-50 text-blue-700 border-blue-200'
+              }`}>{m.user.role === 'OWNER' ? 'Owner' : (m.user.customRole?.name || 'Member')}</span>
               <button
                 onClick={() => handleRemove(m.user.id)}
                 disabled={removing === m.user.id}
@@ -682,8 +681,8 @@ export default function ProjectDetailPage() {
         );
       })()}
 
-      {/* Member management — admin only */}
-      {user?.role === 'ADMIN' && (
+      {/* Member management — owner only */}
+      {user?.role === 'OWNER' && (
         <ProjectMembersPanel
           projectId={project.id}
           initialMembers={project.members || []}

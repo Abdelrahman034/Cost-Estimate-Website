@@ -22,7 +22,7 @@ export default function LoginPage() {
     try {
       const user = await login(form);
       // Redirect based on role
-      if (user.role === 'ADMIN') {
+      if (user.role === 'OWNER') {
         navigate('/company', { replace: true });
       } else {
         navigate('/projects', { replace: true });

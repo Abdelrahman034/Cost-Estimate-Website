@@ -5,8 +5,8 @@
 // All queries are scoped to companyId so one tenant can never see another's data.
 //
 // Access rules:
-//   ADMIN     → sees ALL projects in the company
-//   ESTIMATOR → sees only projects they created OR are a member of
+//   OWNER          → sees ALL projects in the company
+//   custom role    → sees only projects they created OR are a member of
 
 const prisma = require('../../prisma/client');
 
@@ -19,7 +19,7 @@ async function listProjects({ companyId, userId, role, status, page = 1, limit =
   };
 
   // Non-admins: only projects they created or are a member of
-  if (role !== 'ADMIN') {
+  if (role !== 'OWNER') {
     where.OR = [
       { createdById: userId },
       { members: { some: { userId } } },
@@ -130,7 +130,7 @@ async function listProjects({ companyId, userId, role, status, page = 1, limit =
 // ── Get Single Project ────────────────────────────────────────────────────────
 
 async function getProject({ id, companyId, userId, role }) {
-  const membershipFilter = role !== 'ADMIN'
+  const membershipFilter = role !== 'OWNER'
     ? { OR: [{ createdById: userId }, { members: { some: { userId } } }] }
     : {};
 
@@ -232,7 +232,7 @@ function stripRow(row) {
 async function cloneProject({ id, companyId, userId, role }) {
   // Reuse the access-controlled lookup so estimators can only clone
   // projects they own or are a member of.
-  const membershipFilter = role !== 'ADMIN'
+  const membershipFilter = role !== 'OWNER'
     ? { OR: [{ createdById: userId }, { members: { some: { userId } } }] }
     : {};
 

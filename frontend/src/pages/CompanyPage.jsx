@@ -14,8 +14,7 @@ import { useAuth } from '@contexts/AuthContext';
 
 // ── Role badge ────────────────────────────────────────────────────────────────
 const ROLE_BADGE = {
-  ADMIN:     'bg-purple-50 text-purple-700 border border-purple-200',
-  ESTIMATOR: 'bg-blue-50 text-blue-700 border border-blue-200',
+  OWNER: 'bg-purple-50 text-purple-700 border border-purple-200',
 };
 
 function fmtDate(iso) {
@@ -161,7 +160,7 @@ export default function CompanyPage() {
 
   // ── Counts ────────────────────────────────────────────────────────────────
   const activeUsers    = users.filter(u => u.isActive).length;
-  const adminCount     = users.filter(u => u.role === 'ADMIN' && u.isActive).length;
+  const adminCount     = users.filter(u => u.role === 'OWNER' && u.isActive).length;
   const pendingInvites = invites.length;
 
   if (profileError) {
@@ -324,8 +323,8 @@ export default function CompanyPage() {
                   <div className="text-xs text-gray-400 truncate">{u.email}</div>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${ROLE_BADGE[u.role] || ROLE_BADGE.ESTIMATOR}`}>
-                    {u.role}
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${ROLE_BADGE[u.role] || 'bg-blue-50 text-blue-700 border border-blue-200'}`}>
+                    {u.role === 'OWNER' ? 'Owner' : (u.customRole?.name || 'Member')}
                   </span>
                   {u.lastLoginAt && (
                     <span className="text-xs text-gray-400 hidden sm:block">

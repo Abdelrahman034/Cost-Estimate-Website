@@ -37,8 +37,7 @@ export default function RegisterPage() {
         email:       form.email,
         password:    form.password,
       });
-      // First user is always ADMIN — go to company page
-      navigate(user.role === 'ADMIN' ? '/company' : '/projects', { replace: true });
+      navigate(user.role === 'OWNER' ? '/company' : '/projects', { replace: true });
     } catch (err) {
       setError(err.response?.data?.error || 'Registration failed. Please try again.');
     } finally {
@@ -77,7 +76,7 @@ export default function RegisterPage() {
                 name="companyName"
                 value={form.companyName}
                 onChange={handleChange}
-                placeholder="Ahmed HVAC Services"
+                placeholder=""
                 required
                 autoFocus
                 className="input w-full"
@@ -93,7 +92,7 @@ export default function RegisterPage() {
                   name="firstName"
                   value={form.firstName}
                   onChange={handleChange}
-                  placeholder="Ahmed"
+                  placeholder=""
                   className="input w-full"
                 />
               </div>
@@ -104,7 +103,7 @@ export default function RegisterPage() {
                   name="lastName"
                   value={form.lastName}
                   onChange={handleChange}
-                  placeholder="Salah"
+                  placeholder=""
                   className="input w-full"
                 />
               </div>

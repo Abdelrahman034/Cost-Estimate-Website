@@ -110,15 +110,20 @@ export function AuthProvider({ children }) {
 
   // ── Role helpers ───────────────────────────────────────────────────────────
 
-  const isAdmin     = user?.role === 'ADMIN';
-  const isEstimator = user?.role === 'ESTIMATOR';
+  const isOwner = user?.role === 'OWNER';
+  // permissions is an array of tab keys the user can access, or null (owner sees all)
+  const permissions = isOwner ? null : (user?.permissions ?? []);
+
+  const hasPermission = (key) => isOwner || (Array.isArray(permissions) && permissions.includes(key));
 
   const value = {
     user,
     accessToken,
     loading,
-    isAdmin,
-    isEstimator,
+    isOwner,
+    isAdmin: isOwner, // backward-compat alias
+    permissions,
+    hasPermission,
     login,
     register,
     logout,

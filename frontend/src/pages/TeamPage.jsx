@@ -9,20 +9,16 @@
 //   • Revoke a pending invite
 //   • See pending / accepted invite history
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Users, Mail, Plus, Copy, Trash2, Check, Loader2,
-  AlertCircle, Clock, Shield, UserCheck, RefreshCw, X,
+  AlertCircle, Clock, Shield, UserCheck, RefreshCw, X, ChevronDown,
 } from 'lucide-react';
 import api from '@services/api';
 import toast from 'react-hot-toast';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-const ROLE_BADGE = {
-  ADMIN:     'bg-purple-50 text-purple-700 border-purple-200',
-  ESTIMATOR: 'bg-blue-50 text-blue-700 border-blue-200',
-};
 
 const fmtDate = (iso) =>
   iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
@@ -36,31 +32,151 @@ const fmtExpiry = (iso) => {
   return `Expires in ${Math.floor(hours / 24)}d`;
 };
 
-function RoleBadge({ role }) {
+function RoleBadge({ user }) {
+  if (user.role === 'OWNER') {
+    return <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-purple-50 text-purple-700 border-purple-200">Owner</span>;
+  }
   return (
-    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${ROLE_BADGE[role] || ROLE_BADGE.ESTIMATOR}`}>
-      {role}
+    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-blue-50 text-blue-700 border-blue-200">
+      {user.customRole?.name || 'Member'}
     </span>
+  );
+}
+
+// ── User row with inline role change ─────────────────────────────────────────
+
+function UserRow({ user: u, customRoles, onRoleChange }) {
+  const [open,     setOpen]   = useState(false);
+  const [saving,   setSaving] = useState(false);
+  const [dropPos,  setDropPos] = useState({ top: 0, right: 0 });
+  const btnRef  = useRef(null);
+  const menuRef = useRef(null);
+
+  const openDropdown = () => {
+    if (btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect();
+      setDropPos({
+        top:   rect.bottom + window.scrollY + 4,
+        right: window.innerWidth - rect.right,
+      });
+    }
+    setOpen(v => !v);
+  };
+
+  // Close on outside click — must exclude both the button AND the portal menu
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => {
+      const inBtn  = btnRef.current  && btnRef.current.contains(e.target);
+      const inMenu = menuRef.current && menuRef.current.contains(e.target);
+      if (!inBtn && !inMenu) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const changeRole = async (customRoleId) => {
+    setSaving(true);
+    setOpen(false);
+    try {
+      const { data } = await api.patch(`/company/users/${u.id}`, { customRoleId });
+      onRoleChange(data);
+      toast.success('Role updated');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Could not update role.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const isOwner = u.role === 'OWNER';
+
+  return (
+    <li className="flex items-center gap-4 px-5 py-3.5">
+      <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 text-sm font-bold flex-shrink-0">
+        {u.firstName?.[0]?.toUpperCase() || u.email[0].toUpperCase()}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium text-gray-900 truncate">
+          {u.firstName && u.lastName ? `${u.firstName} ${u.lastName}` : u.email}
+        </div>
+        <div className="text-xs text-gray-400 truncate">{u.email}</div>
+      </div>
+
+      {/* Role badge / dropdown */}
+      {isOwner ? (
+        <RoleBadge user={u} />
+      ) : (
+        <div className="flex-shrink-0">
+          <button
+            ref={btnRef}
+            onClick={openDropdown}
+            disabled={saving}
+            className="flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 transition-colors disabled:opacity-50"
+          >
+            {saving ? <Loader2 size={10} className="animate-spin" /> : null}
+            {u.customRole?.name || 'Member'}
+            <ChevronDown size={10} />
+          </button>
+          {open && createPortal(
+            <div
+              ref={menuRef}
+              style={{ position: 'absolute', top: dropPos.top, right: dropPos.right, zIndex: 9999 }}
+              className="bg-white border border-gray-200 rounded-xl shadow-lg py-1 min-w-[160px]"
+            >
+              {customRoles.length === 0 ? (
+                <p className="px-3 py-2 text-xs text-gray-400">No roles yet — create one in Roles.</p>
+              ) : (
+                customRoles.map(r => (
+                  <button
+                    key={r.id}
+                    onClick={() => changeRole(r.id)}
+                    className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center justify-between gap-2 ${u.customRoleId === r.id ? 'text-blue-600 font-medium' : 'text-gray-700'}`}
+                  >
+                    {r.name}
+                    {u.customRoleId === r.id && <Check size={13} className="text-blue-500" />}
+                  </button>
+                ))
+              )}
+            </div>,
+            document.body
+          )}
+        </div>
+      )}
+
+      <div className="text-xs text-gray-300 flex items-center gap-1 hidden sm:flex">
+        <Clock size={11} />
+        {u.lastLoginAt ? fmtDate(u.lastLoginAt) : 'Never logged in'}
+      </div>
+    </li>
   );
 }
 
 // ── Invite form modal ─────────────────────────────────────────────────────────
 
-function InviteModal({ open, onClose, onSent }) {
-  const [form, setForm]   = useState({ email: '', role: 'ESTIMATOR' });
+function InviteModal({ open, onClose, onSent, customRoles }) {
+  const [form, setForm]     = useState({ email: '', customRoleId: '' });
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState('');
+
+  // Pre-select first role
+  React.useEffect(() => {
+    if (customRoles.length && !form.customRoleId) {
+      setForm(p => ({ ...p, customRoleId: customRoles[0].id }));
+    }
+  }, [customRoles]);
 
   const handle = (e) => setForm(p => ({ ...p, [e.target.name]: e.target.value }));
 
   const submit = async (e) => {
     e.preventDefault();
     setError('');
+    if (!form.customRoleId) { setError('Please select a role.'); return; }
     setSaving(true);
     try {
       const { data } = await api.post('/company/invites', form);
       onSent(data);
-      setForm({ email: '', role: 'ESTIMATOR' });
+      setForm({ email: '', customRoleId: customRoles[0]?.id || '' });
       onClose();
       toast.success(`Invite sent to ${form.email}`);
     } catch (err) {
@@ -96,17 +212,24 @@ function InviteModal({ open, onClose, onSent }) {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Role</label>
-            <select name="role" value={form.role} onChange={handle} className="input w-full">
-              <option value="ESTIMATOR">Estimator — can create and edit estimates</option>
-              <option value="ADMIN">Admin — full access including team management</option>
-            </select>
+            {customRoles.length === 0 ? (
+              <p className="text-sm text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
+                No roles created yet. Go to <strong>Roles</strong> to create one first.
+              </p>
+            ) : (
+              <select name="customRoleId" value={form.customRoleId} onChange={handle} className="input w-full">
+                {customRoles.map(r => (
+                  <option key={r.id} value={r.id}>{r.name}</option>
+                ))}
+              </select>
+            )}
           </div>
           <p className="text-xs text-gray-400">
             The invite link is valid for 7 days. Share it with the employee — they'll set their own password.
           </p>
           <div className="flex items-center justify-end gap-3 pt-1">
             <button type="button" onClick={onClose} className="btn-secondary px-4 py-2">Cancel</button>
-            <button type="submit" disabled={saving} className="btn-primary px-5 py-2 flex items-center gap-2">
+            <button type="submit" disabled={saving || customRoles.length === 0} className="btn-primary px-5 py-2 flex items-center gap-2">
               {saving ? <Loader2 size={14} className="animate-spin" /> : <Mail size={14} />}
               {saving ? 'Sending…' : 'Generate invite link'}
             </button>
@@ -120,23 +243,26 @@ function InviteModal({ open, onClose, onSent }) {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function TeamPage() {
-  const [users,    setUsers]    = useState([]);
-  const [invites,  setInvites]  = useState([]);
-  const [loading,  setLoading]  = useState(true);
-  const [error,    setError]    = useState('');
-  const [inviteOpen, setInviteOpen] = useState(false);
-  const [copied,   setCopied]   = useState(null); // invite id that was just copied
+  const [users,       setUsers]       = useState([]);
+  const [invites,     setInvites]     = useState([]);
+  const [customRoles, setCustomRoles] = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [error,       setError]       = useState('');
+  const [inviteOpen,  setInviteOpen]  = useState(false);
+  const [copied,      setCopied]      = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const [u, i] = await Promise.all([
+      const [u, i, r] = await Promise.all([
         api.get('/company/users'),
         api.get('/company/invites'),
+        api.get('/company/roles'),
       ]);
       setUsers(u.data);
       setInvites(i.data);
+      setCustomRoles(r.data);
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to load team data.');
     } finally {
@@ -216,22 +342,12 @@ export default function TeamPage() {
         ) : (
           <ul className="divide-y divide-gray-50">
             {users.map(u => (
-              <li key={u.id} className="flex items-center gap-4 px-5 py-3.5">
-                <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 text-sm font-bold flex-shrink-0">
-                  {u.firstName?.[0]?.toUpperCase() || u.email[0].toUpperCase()}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-gray-900 truncate">
-                    {u.firstName && u.lastName ? `${u.firstName} ${u.lastName}` : u.email}
-                  </div>
-                  <div className="text-xs text-gray-400 truncate">{u.email}</div>
-                </div>
-                <RoleBadge role={u.role} />
-                <div className="text-xs text-gray-300 flex items-center gap-1 hidden sm:flex">
-                  <Clock size={11} />
-                  {u.lastLoginAt ? fmtDate(u.lastLoginAt) : 'Never logged in'}
-                </div>
-              </li>
+              <UserRow
+                key={u.id}
+                user={u}
+                customRoles={customRoles}
+                onRoleChange={(updated) => setUsers(prev => prev.map(x => x.id === updated.id ? { ...x, ...updated } : x))}
+              />
             ))}
           </ul>
         )}
@@ -267,7 +383,7 @@ export default function TeamPage() {
                   <div className="text-sm font-medium text-gray-900 truncate">{inv.email}</div>
                   <div className="text-xs text-amber-600">{fmtExpiry(inv.expiresAt)}</div>
                 </div>
-                <RoleBadge role={inv.role} />
+                <RoleBadge user={{ role: inv.role, customRole: inv.customRole }} />
                 {/* Copy link */}
                 <button
                   onClick={() => copyInviteLink(inv)}
@@ -296,6 +412,7 @@ export default function TeamPage() {
         open={inviteOpen}
         onClose={() => setInviteOpen(false)}
         onSent={(newInvite) => setInvites(prev => [newInvite, ...prev])}
+        customRoles={customRoles}
       />
     </div>
   );

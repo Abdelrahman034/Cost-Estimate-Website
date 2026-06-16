@@ -1,23 +1,29 @@
 // features/company/companyRoutes.js — /api/company
 
-const router          = require('express').Router();
-const { requireAuth } = require('../../middleware/auth');
-const ctrl            = require('./companyController');
+const router                     = require('express').Router();
+const { requireAuth, requireOwner } = require('../../middleware/auth');
+const ctrl                       = require('./companyController');
 
 router.use(requireAuth);
 
-// Company profile
-router.get('/',      ctrl.getCompany);    // GET  /api/company
-router.patch('/',    ctrl.updateCompany); // PATCH /api/company
+// Company profile (owner only for writes)
+router.get('/',   ctrl.getCompany);
+router.patch('/', requireOwner, ctrl.updateCompany);
 
 // Users
-router.get('/users',        ctrl.listUsers);   // GET    /api/company/users
-router.patch('/users/:id',  ctrl.updateUser);  // PATCH  /api/company/users/:id
-router.delete('/users/:id', ctrl.deleteUser);  // DELETE /api/company/users/:id
+router.get('/users',        ctrl.listUsers);
+router.patch('/users/:id',  requireOwner, ctrl.updateUser);
+router.delete('/users/:id', requireOwner, ctrl.deleteUser);
 
 // Invites
-router.get('/invites',        ctrl.listInvites);  // GET    /api/company/invites
-router.post('/invites',       ctrl.createInvite); // POST   /api/company/invites
-router.delete('/invites/:id', ctrl.revokeInvite); // DELETE /api/company/invites/:id
+router.get('/invites',        ctrl.listInvites);
+router.post('/invites',       requireOwner, ctrl.createInvite);
+router.delete('/invites/:id', requireOwner, ctrl.revokeInvite);
+
+// Custom Roles (owner only)
+router.get('/roles',        ctrl.listCustomRoles);
+router.post('/roles',       requireOwner, ctrl.createCustomRole);
+router.patch('/roles/:id',  requireOwner, ctrl.updateCustomRole);
+router.delete('/roles/:id', requireOwner, ctrl.deleteCustomRole);
 
 module.exports = router;

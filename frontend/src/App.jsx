@@ -27,6 +27,7 @@ import SettingsPage    from '@pages/SettingsPage';
 import AdminDashboard  from '@pages/AdminDashboard';
 import CompanyPage     from '@pages/CompanyPage';
 import TeamPage        from '@pages/TeamPage';
+import RolesPage       from '@pages/RolesPage';
 import ProjectsPage      from '@pages/ProjectsPage';
 import ProjectDetailPage from '@pages/ProjectDetailPage';
 import { SettingsProvider } from '@contexts/SettingsContext';
@@ -73,7 +74,7 @@ function AppShell() {
             <Route path={ROUTE_PATHS.SUMMARY}          element={<SummaryModule projectInfo={projectInfo} />} />
             <Route path={ROUTE_PATHS.SETTINGS}
               element={
-                <ProtectedRoute allowedRoles={['ADMIN']}>
+                <ProtectedRoute allowedRoles={['OWNER']}>
                   <SettingsPage />
                 </ProtectedRoute>
               }
@@ -83,13 +84,14 @@ function AppShell() {
             <Route path="/projects/:id" element={<ProjectDetailPage />} />
             <Route path="/company"
               element={
-                <ProtectedRoute allowedRoles={['ADMIN']}>
+                <ProtectedRoute allowedRoles={['OWNER']}>
                   <CompanyPage />
                 </ProtectedRoute>
               }
             />
-            <Route path="/team"         element={<TeamPage />} />
-            <Route path="*" element={<Navigate to={user?.role === 'ADMIN' ? ROUTE_PATHS.DASHBOARD : '/projects'} replace />} />
+            <Route path="/team"  element={<TeamPage />} />
+            <Route path="/roles" element={<ProtectedRoute allowedRoles={['OWNER']}><RolesPage /></ProtectedRoute>} />
+            <Route path="*" element={<Navigate to="/projects" replace />} />
           </Routes>
           </ErrorBoundary>
         </main>

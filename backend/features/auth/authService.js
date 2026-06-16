@@ -48,18 +48,27 @@ function signRefreshToken(payload) {
 }
 
 function buildTokenPayload(user) {
-  return { userId: user.id, companyId: user.companyId, role: user.role };
+  return {
+    userId:      user.id,
+    companyId:   user.companyId,
+    role:        user.role || null,
+    customRoleId: user.customRoleId || null,
+    permissions: user.customRole?.permissions ?? null,
+  };
 }
 
 function formatUserResponse(user, company) {
   return {
-    id:        user.id,
-    email:     user.email,
-    firstName: user.firstName,
-    lastName:  user.lastName,
-    role:      user.role,
-    companyId: user.companyId,
-    company:   company?.name ?? user.company?.name,
+    id:           user.id,
+    email:        user.email,
+    firstName:    user.firstName,
+    lastName:     user.lastName,
+    role:         user.role || null,
+    customRoleId: user.customRoleId || null,
+    customRole:   user.customRole || null,
+    permissions:  user.customRole?.permissions ?? null,
+    companyId:    user.companyId,
+    company:      company?.name ?? user.company?.name,
   };
 }
 
@@ -81,7 +90,7 @@ async function register({ companyName, email, password, firstName, lastName }) {
         passwordHash,
         firstName,
         lastName,
-        role: 'ADMIN',
+        role: 'OWNER',
       },
     });
     // Create a default pricing config so the company is ready to estimate
@@ -105,7 +114,10 @@ async function register({ companyName, email, password, firstName, lastName }) {
 async function login({ email, password }) {
   const user = await prisma.user.findFirst({
     where:   { email: email.toLowerCase().trim(), isActive: true },
-    include: { company: { select: { id: true, name: true } } },
+    include: {
+      company:    { select: { id: true, name: true } },
+      customRole: { select: { id: true, name: true, permissions: true } },
+    },
   });
 
   // Always call bcrypt.compare even when user is not found to prevent timing attacks.
@@ -166,7 +178,13 @@ async function refreshTokens({ refreshToken }) {
   // Token rotation: each refresh token is single-use. If it's stolen and used,
   // the real user's next refresh will fail (their token was already rotated),
   // alerting the system to a potential breach.
-  const newPayload      = { userId: payload.userId, companyId: payload.companyId, role: payload.role };
+  const newPayload = {
+    userId:       payload.userId,
+    companyId:    payload.companyId,
+    role:         payload.role,
+    customRoleId: payload.customRoleId || null,
+    permissions:  payload.permissions  || null,
+  };
   const newAccessToken  = signAccessToken(newPayload);
   const newRefreshToken = signRefreshToken(newPayload);
 
@@ -197,8 +215,9 @@ async function getMe(userId) {
     where:  { id: userId },
     select: {
       id: true, email: true, firstName: true, lastName: true,
-      role: true, companyId: true, lastLoginAt: true,
-      company: { select: { id: true, name: true, address: true, phone: true } },
+      role: true, customRoleId: true, companyId: true, lastLoginAt: true,
+      company:    { select: { id: true, name: true, address: true, phone: true } },
+      customRole: { select: { id: true, name: true, permissions: true } },
     },
   });
   if (!user) {
@@ -216,7 +235,10 @@ async function getMe(userId) {
 async function getInvite(token) {
   const invite = await prisma.invite.findUnique({
     where:   { token },
-    include: { company: { select: { name: true } } },
+    include: {
+      company:    { select: { name: true } },
+      customRole: { select: { id: true, name: true } },
+    },
   });
   if (!invite) {
     const e = new Error('Invite not found.'); e.status = 404; throw e;
@@ -228,10 +250,12 @@ async function getInvite(token) {
     const e = new Error('This invite has expired. Ask your admin to resend it.'); e.status = 410; throw e;
   }
   return {
-    email:       invite.email,
-    role:        invite.role,
-    companyName: invite.company.name,
-    expiresAt:   invite.expiresAt,
+    email:        invite.email,
+    role:         invite.role,
+    customRoleId: invite.customRoleId,
+    customRole:   invite.customRole,
+    companyName:  invite.company.name,
+    expiresAt:    invite.expiresAt,
   };
 }
 
@@ -263,9 +287,11 @@ async function acceptInvite({ token, firstName, lastName, password }) {
         email:        invite.email,
         firstName,
         lastName,
-        role:         invite.role,
+        role:         invite.role || null,
+        customRoleId: invite.customRoleId || null,
         passwordHash,
       },
+      include: { customRole: { select: { id: true, name: true, permissions: true } } },
     }),
     prisma.invite.update({
       where: { id: invite.id },
@@ -284,11 +310,7 @@ async function acceptInvite({ token, firstName, lastName, password }) {
   return {
     accessToken,
     refreshToken,
-    user: {
-      id: user.id, email: user.email, firstName: user.firstName,
-      lastName: user.lastName, role: user.role, companyId: user.companyId,
-      company: invite.company.name,
-    },
+    user: formatUserResponse(user, invite.company),
   };
 }
 

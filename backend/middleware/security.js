@@ -101,10 +101,10 @@ function createRateLimiter({ windowMs, max, message }) {
   };
 }
 
-// Auth endpoints: 10 attempts per 15 minutes per IP
+// Auth endpoints: 10 attempts per 15 min in production, 100 in development
 const authLimiter = createRateLimiter({
   windowMs: 15 * 60 * 1000,
-  max:      10,
+  max:      process.env.NODE_ENV === 'production' ? 10 : 100,
   message:  'Too many attempts. Please wait 15 minutes before trying again.',
 });
 

@@ -183,7 +183,7 @@ async function getPipeSpecs(req, res) {
  */
 async function updatePipeSpec(req, res) {
   try {
-    if (req.user?.role !== 'ADMIN') {
+    if (req.user?.role !== 'OWNER') {
       return res.status(403).json({ error: 'Admin role required to update pipe specifications.' });
     }
 
@@ -268,7 +268,7 @@ async function getEquipmentConfigs(req, res) {
  */
 async function updateEquipmentConfig(req, res) {
   try {
-    if (req.user?.role !== 'ADMIN') {
+    if (req.user?.role !== 'OWNER') {
       return res.status(403).json({ error: 'Admin role required to update equipment configs.' });
     }
 
@@ -335,7 +335,7 @@ async function updateEquipmentConfig(req, res) {
  */
 async function restoreDefaults(req, res) {
   try {
-    if (req.user?.role !== 'ADMIN') {
+    if (req.user?.role !== 'OWNER') {
       return res.status(403).json({ error: 'Admin role required.' });
     }
 

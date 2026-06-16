@@ -17,10 +17,14 @@
  * Export PDF → browser print → Save as PDF.
  */
 import React, { useState, useRef, useCallback, useContext, useEffect } from 'react';
-import { FileText, Printer, Edit2, Plus, Trash2, Check, RefreshCw } from 'lucide-react';
+import { FileText, Printer, Edit2, Plus, Trash2, Check, RefreshCw, Zap } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { readAllModuleTotals } from '@utils/projectTotals';
 import { SettingsContext } from '@contexts/SettingsContext';
 import { useEstimate } from '@hooks/useEstimate';
+import { estimatesApi } from '@services/estimatesApi';
+import { ductApi } from '@services/api';
+import toast from 'react-hot-toast';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fmt = (n) =>
@@ -180,6 +184,93 @@ function SectionHeading({ children }) {
   return <p className="font-bold mt-5 mb-1">{children}</p>;
 }
 
+// ─── Extract equipment lines from Unit Schedule rowsJson ──────────────────────
+function buildEquipmentLines(rowsJson) {
+  const lines = [];
+  const fmtTons = (t) => t ? `${t} Ton` : '';
+  const fmtCost = (c) => c ? ` — ${fmt(c)}` : '';
+
+  const accLabels = {
+    standardCurb: 'Standard Curb', metalRoofCurb: 'Metal Roof Curb',
+    curbAdapter: 'Curb Adapter', economizer: 'Economizer',
+    pvcCond: 'PVC Condensate', cuCond: 'Cu Condensate',
+    thermostat: 'Thermostat', smokeDetectors: 'Smoke Detectors',
+    newDrops: 'New Drops', drumLouvers: 'Drum Louvers',
+  };
+
+  const accSummary = (accessories) => {
+    if (!accessories) return '';
+    const active = Object.entries(accessories)
+      .filter(([k, v]) => v && v !== '' && v !== '—' && accLabels[k])
+      .map(([k]) => accLabels[k]);
+    return active.length ? ` [${active.join(', ')}]` : '';
+  };
+
+  // Packaged / RTU rows
+  (rowsJson.packagedRows || []).forEach(r => {
+    if (!r.name) return;
+    const cost  = r.quotedEquipCost || (r.baseCostPerTon * r.coolTons) || 0;
+    const owner = r.ownerProvided === 'xx' ? ' (Owner Provided)' : '';
+    lines.push(`${r.name} — ${fmtTons(r.coolTons)} RTU${owner}${fmtCost(cost)}${accSummary(r.accessories)}`);
+  });
+
+  // Split system rows
+  (rowsJson.splitRows || []).forEach(r => {
+    if (!r.name) return;
+    const cost  = r.quotedEquipCost || 0;
+    const owner = r.ownerProvided === 'xx' ? ' (Owner Provided)' : '';
+    lines.push(`${r.name} — ${fmtTons(r.coolTons)} Split System${owner}${fmtCost(cost)}`);
+  });
+
+  // Wall mount rows
+  (rowsJson.wallMountRows || []).forEach(r => {
+    if (!r.name) return;
+    const cost  = r.quotedEquipCost || 0;
+    const owner = r.ownerProvided === 'xx' ? ' (Owner Provided)' : '';
+    lines.push(`${r.name} — ${fmtTons(r.coolTons)} Wall Mount${owner}${fmtCost(cost)}`);
+  });
+
+  // VRF rows
+  (rowsJson.vrfRows || []).forEach(r => {
+    if (!r.name) return;
+    const cost = r.quotedEquipCost || 0;
+    lines.push(`${r.name} — ${fmtTons(r.coolTons)} VRF${fmtCost(cost)}`);
+  });
+
+  // Service rows
+  (rowsJson.serviceRows || []).forEach(r => {
+    if (!r.name) return;
+    lines.push(`${r.name} — Service / Repair`);
+  });
+
+  return lines;
+}
+
+// ─── Build duct schedule summary from calculate API response rows ─────────────
+const DUCT_TYPE_LABELS = { supply: 'Supply', return: 'Return', exhaust: 'Exhaust', oa: 'Outside Air' };
+
+function buildDuctSummary(calcRows) {
+  const groups = {};
+  for (const r of calcRows) {
+    const key = r.ductType || 'supply';
+    if (!groups[key]) groups[key] = { type: DUCT_TYPE_LABELS[key] || key, lf: 0, area: 0, weight: 0, cost: 0 };
+    groups[key].lf     += r.linearFeet    || 0;
+    groups[key].area   += r.surfaceArea   || 0;
+    groups[key].weight += r.weight        || 0;
+    groups[key].cost   += r.totalCost     || 0;
+  }
+  // Return in canonical order
+  return ['supply', 'return', 'exhaust', 'oa']
+    .filter(k => groups[k])
+    .map(k => ({
+      ...groups[k],
+      lf:     Math.round(groups[k].lf),
+      area:   Math.round(groups[k].area),
+      weight: Math.round(groups[k].weight),
+      cost:   groups[k].cost,
+    }));
+}
+
 // ─── The actual proposal document ─────────────────────────────────────────────
 function ProposalDoc({ data, onDataChange, summaryTotals }) {
   const ch  = (field) => (val) => onDataChange({ ...data, [field]: val });
@@ -227,7 +318,49 @@ function ProposalDoc({ data, onDataChange, summaryTotals }) {
         </li>
       </ul>
 
-      {/* 3. Scope of Work */}
+      {/* 3. Equipment Schedule (auto-extracted from Unit Schedule) */}
+      {data.equipmentSchedule?.length > 0 && (
+        <>
+          <SectionHeading>Equipment Schedule</SectionHeading>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11pt' }} className="mb-2">
+            <thead>
+              <tr style={{ borderBottom: '1px solid #ccc' }}>
+                <th style={{ textAlign: 'left', padding: '3px 6px', fontWeight: 'bold', width: '18%' }}>Tag</th>
+                <th style={{ textAlign: 'left', padding: '3px 6px', fontWeight: 'bold' }}>Description</th>
+                <th style={{ textAlign: 'right', padding: '3px 6px', fontWeight: 'bold', width: '15%' }}>Price</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.equipmentSchedule.map((line, i) => {
+                // Parse "TAG — description — $price [accessories]"
+                const priceMatch = line.match(/— (\$[\d,]+)/);
+                const accMatch   = line.match(/\[(.+)\]$/);
+                const price      = priceMatch ? priceMatch[1] : '—';
+                const acc        = accMatch   ? accMatch[1]   : '';
+                // Tag is everything before the first ' — '
+                const dashIdx    = line.indexOf(' — ');
+                const tag        = dashIdx > -1 ? line.slice(0, dashIdx) : line;
+                // Description: strip tag, price, accessories
+                let desc = dashIdx > -1 ? line.slice(dashIdx + 3) : '';
+                if (priceMatch) desc = desc.replace(` — ${priceMatch[1]}`, '');
+                if (accMatch)   desc = desc.replace(` [${acc}]`, '');
+                return (
+                  <tr key={i} style={{ borderBottom: '1px solid #eee' }}>
+                    <td style={{ padding: '3px 6px', fontWeight: 'bold' }}>{tag}</td>
+                    <td style={{ padding: '3px 6px' }}>
+                      {desc}
+                      {acc && <span style={{ color: '#555', fontSize: '10pt' }}> · {acc}</span>}
+                    </td>
+                    <td style={{ padding: '3px 6px', textAlign: 'right' }}>{price}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </>
+      )}
+
+      {/* 4. Scope of Work */}
       <SectionHeading>Scope of Work</SectionHeading>
       <EditablePara value={data.scopeIntro} onChange={ch('scopeIntro')} />
       {data.controlsExcluded && (
@@ -247,6 +380,45 @@ function ProposalDoc({ data, onDataChange, summaryTotals }) {
 
       {/* 6. Ductwork Installation */}
       <SectionHeading>Ductwork Installation</SectionHeading>
+      {data.ductSchedule?.length > 0 && (() => {
+        const totLf     = data.ductSchedule.reduce((s, r) => s + r.lf,     0);
+        const totArea   = data.ductSchedule.reduce((s, r) => s + r.area,   0);
+        const totWeight = data.ductSchedule.reduce((s, r) => s + r.weight, 0);
+        const totCost   = data.ductSchedule.reduce((s, r) => s + r.cost,   0);
+        return (
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11pt', marginBottom: '6px' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid #ccc' }}>
+                <th style={{ textAlign: 'left',  padding: '3px 6px', fontWeight: 'bold' }}>Type</th>
+                <th style={{ textAlign: 'right', padding: '3px 6px', fontWeight: 'bold' }}>Lin. Ft</th>
+                <th style={{ textAlign: 'right', padding: '3px 6px', fontWeight: 'bold' }}>Area (sq ft)</th>
+                <th style={{ textAlign: 'right', padding: '3px 6px', fontWeight: 'bold' }}>Weight (lbs)</th>
+                <th style={{ textAlign: 'right', padding: '3px 6px', fontWeight: 'bold' }}>Cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.ductSchedule.map((r, i) => (
+                <tr key={i} style={{ borderBottom: '1px solid #eee' }}>
+                  <td style={{ padding: '3px 6px' }}>{r.type}</td>
+                  <td style={{ padding: '3px 6px', textAlign: 'right' }}>{r.lf.toLocaleString()}</td>
+                  <td style={{ padding: '3px 6px', textAlign: 'right' }}>{r.area.toLocaleString()}</td>
+                  <td style={{ padding: '3px 6px', textAlign: 'right' }}>{r.weight.toLocaleString()}</td>
+                  <td style={{ padding: '3px 6px', textAlign: 'right' }}>{fmt(r.cost)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr style={{ borderTop: '2px solid #ccc', fontWeight: 'bold' }}>
+                <td style={{ padding: '3px 6px' }}>Total</td>
+                <td style={{ padding: '3px 6px', textAlign: 'right' }}>{totLf.toLocaleString()}</td>
+                <td style={{ padding: '3px 6px', textAlign: 'right' }}>{totArea.toLocaleString()}</td>
+                <td style={{ padding: '3px 6px', textAlign: 'right' }}>{totWeight.toLocaleString()}</td>
+                <td style={{ padding: '3px 6px', textAlign: 'right' }}>{fmt(totCost)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        );
+      })()}
       <EditableLabelList items={data.ductworkItems} onChange={ch('ductworkItems')} />
 
       {/* 7. Services Included */}
@@ -281,6 +453,9 @@ function ProposalDoc({ data, onDataChange, summaryTotals }) {
 // ─── Main module ──────────────────────────────────────────────────────────────
 export default function ProposalPdfModule({ projectInfo }) {
   const { companySettings } = useContext(SettingsContext);
+  const [searchParams]      = useSearchParams();
+  const projectId           = searchParams.get('projectId') || null;
+  const [extracting,  setExtracting]  = useState(false);
 
   const [data, setData] = useState(() => {
     const modules = readAllModuleTotals();
@@ -302,6 +477,12 @@ export default function ProposalPdfModule({ projectInfo }) {
       controlsExcluded: true,
       scopeCompliance: ['Project specifications', 'Applicable mechanical codes', 'SMACNA standards'],
       scopeClosing:    'Our scope includes providing labor, materials, equipment and supervision necessary to deliver a fully operational HVAC system.',
+
+      // Auto-extracted from Unit Schedule (populated via "Extract Equipment" button)
+      equipmentSchedule: [],
+
+      // Auto-extracted from Metal Duct (populated via "Extract Duct" button)
+      ductSchedule: [],
 
       // Equipment — pre-populated; edit to match actual project schedule
       equipmentItems: [
@@ -353,6 +534,47 @@ export default function ProposalPdfModule({ projectInfo }) {
       contactEmail: companySettings?.companyEmail || '',
     };
   });
+
+  // Extract equipment from saved Unit Schedule estimate
+  const extractEquipment = useCallback(async () => {
+    if (!projectId) { toast.error('Open a project first to extract equipment.'); return; }
+    setExtracting(true);
+    try {
+      const est = await estimatesApi.getByModule(projectId, 'UNIT_SCHEDULE');
+      if (!est?.rowsJson) { toast.error('No Unit Schedule saved for this project yet.'); return; }
+      const lines = buildEquipmentLines(est.rowsJson);
+      if (lines.length === 0) { toast.error('Unit Schedule has no equipment rows.'); return; }
+      setData(prev => ({ ...prev, equipmentSchedule: lines }));
+      toast.success(`${lines.length} unit${lines.length !== 1 ? 's' : ''} extracted from Unit Schedule`);
+    } catch {
+      toast.error('Could not load Unit Schedule.');
+    } finally {
+      setExtracting(false);
+    }
+  }, [projectId]);
+
+  // Extract duct summary from saved Metal Duct estimate
+  const [extractingDuct, setExtractingDuct] = useState(false);
+
+  const extractDuct = useCallback(async () => {
+    if (!projectId) { toast.error('Open a project first to extract duct data.'); return; }
+    setExtractingDuct(true);
+    try {
+      const est = await estimatesApi.getByModule(projectId, 'METAL_DUCT');
+      if (!est?.rowsJson) { toast.error('No Metal Duct estimate saved for this project yet.'); return; }
+      const rows = Array.isArray(est.rowsJson) ? est.rowsJson : (est.rowsJson.rows || []);
+      if (rows.length === 0) { toast.error('Metal Duct estimate has no rows.'); return; }
+      const { data: calcResult } = await ductApi.calculate(rows, {});
+      const summary = buildDuctSummary(calcResult.rows || []);
+      if (summary.length === 0) { toast.error('No duct data found.'); return; }
+      setData(prev => ({ ...prev, ductSchedule: summary }));
+      toast.success(`Duct schedule extracted — ${summary.length} type${summary.length !== 1 ? 's' : ''}`);
+    } catch (err) {
+      toast.error('Could not extract duct data.');
+    } finally {
+      setExtractingDuct(false);
+    }
+  }, [projectId]);
 
   // Inject print styles once
   const printStyleRef = useRef(null);
@@ -407,6 +629,16 @@ export default function ProposalPdfModule({ projectInfo }) {
               Excl. controls
             </label>
           </div>
+
+          <button onClick={extractEquipment} disabled={extracting} className="btn-secondary text-sm flex items-center gap-1.5">
+            {extracting ? <RefreshCw size={13} className="animate-spin" /> : <Zap size={13} />}
+            Extract Equipment
+          </button>
+
+          <button onClick={extractDuct} disabled={extractingDuct} className="btn-secondary text-sm flex items-center gap-1.5">
+            {extractingDuct ? <RefreshCw size={13} className="animate-spin" /> : <Zap size={13} />}
+            Extract Duct
+          </button>
 
           <button onClick={refreshModules} className="btn-secondary text-sm flex items-center gap-1.5">
             <Edit2 size={13} /> Refresh Totals

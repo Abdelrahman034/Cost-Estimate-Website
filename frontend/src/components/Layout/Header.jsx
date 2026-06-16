@@ -54,9 +54,9 @@ export default function Header({ onMenuClick, onLogout, user }) {
                   : user?.email || 'User'}
               </div>
               <div className="text-xs text-gray-400 truncate mt-0.5">{user?.email}</div>
-              {user?.role && (
+              {(user?.role || user?.customRole?.name) && (
                 <span className="inline-block mt-1 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 border border-blue-100">
-                  {user.role}
+                  {user.role === 'OWNER' ? 'Owner' : (user.customRole?.name || 'Member')}
                 </span>
               )}
             </div>

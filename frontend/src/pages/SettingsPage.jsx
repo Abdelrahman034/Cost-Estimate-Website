@@ -116,7 +116,7 @@ function PipeSpecsTable({ userRole }) {
   const [restoring,   setRestoring]   = useState(false);
   const [showTable,   setShowTable]   = useState(false);
 
-  const isAdmin = userRole === 'ADMIN';
+  const isAdmin = userRole === 'OWNER';
 
   const load = useCallback(async () => {
     setLoading(true);

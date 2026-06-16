@@ -1,28 +1,15 @@
 // middleware/auth.js
 //
-// Middleware that protects routes by verifying the JWT access token.
-//
-// Usage on a route:
-//   router.get('/projects', requireAuth, handler)
-//   router.delete('/projects/:id', requireAuth, requireRole('ADMIN'), handler)
-//
 // After requireAuth runs, every handler has access to:
-//   req.user.userId    — the logged-in user's ID
-//   req.user.companyId — their company (used to scope ALL database queries)
-//   req.user.role      — ADMIN | ESTIMATOR
+//   req.user.userId      — the logged-in user's ID
+//   req.user.companyId   — their company (used to scope ALL database queries)
+//   req.user.role        — 'OWNER' | null
+//   req.user.permissions — array of permission keys (null for owners)
 
 const jwt = require('jsonwebtoken');
 
-// ─── requireAuth ─────────────────────────────────────────────────────────────
-// Checks the Authorization header for a Bearer token,
-// verifies the signature, and attaches the payload to req.user.
-//
-// The Authorization header looks like:
-//   Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-
 function requireAuth(req, res, next) {
   const authHeader = req.headers['authorization'];
-  // Header format is "Bearer <token>" — split on space and take the second part
   const token = authHeader && authHeader.split(' ')[1];
 
   if (!token) {
@@ -30,11 +17,9 @@ function requireAuth(req, res, next) {
   }
 
   try {
-    // jwt.verify() checks the signature AND the expiry in one call.
-    // If the token is expired or tampered with, it throws an error.
     const payload = jwt.verify(token, process.env.JWT_ACCESS_SECRET);
-    req.user = payload; // { userId, companyId, role, iat, exp }
-    next();             // pass control to the actual route handler
+    req.user = payload; // { userId, companyId, role, customRoleId, permissions, iat, exp }
+    next();
   } catch (err) {
     if (err.name === 'TokenExpiredError') {
       return res.status(401).json({ error: 'Token expired.', code: 'TOKEN_EXPIRED' });
@@ -43,21 +28,25 @@ function requireAuth(req, res, next) {
   }
 }
 
-// ─── requireRole ─────────────────────────────────────────────────────────────
-// Factory function that returns middleware checking the user's role.
-// Call AFTER requireAuth so req.user is already set.
-//
-// Example: requireRole('ADMIN') or requireRole('ADMIN', 'ESTIMATOR')
+// requireOwner — only the OWNER role passes
+function requireOwner(req, res, next) {
+  if (req.user?.role !== 'OWNER') {
+    return res.status(403).json({ error: 'Access denied. Owner role required.' });
+  }
+  next();
+}
 
+// requireRole kept for backward compat — treats 'ADMIN' as alias for 'OWNER'
 function requireRole(...roles) {
+  const normalized = roles.map(r => r === 'ADMIN' ? 'OWNER' : r);
   return (req, res, next) => {
-    if (!roles.includes(req.user?.role)) {
+    if (!normalized.includes(req.user?.role)) {
       return res.status(403).json({
-        error: `Access denied. Required role: ${roles.join(' or ')}.`,
+        error: `Access denied. Required role: ${normalized.join(' or ')}.`,
       });
     }
     next();
   };
 }
 
-module.exports = { requireAuth, requireRole };
+module.exports = { requireAuth, requireOwner, requireRole };

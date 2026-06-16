@@ -175,8 +175,8 @@ function NewProjectModal({ open, onClose, onCreate }) {
 export default function ProjectsPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const isAdmin    = user?.role === 'ADMIN';
-  const canCreate  = user?.role === 'ADMIN' || user?.role === 'ESTIMATOR';
+  const isAdmin   = user?.role === 'OWNER';
+  const canCreate = true; // all authenticated users can create projects
 
   const [projects, setProjects] = useState([]);
   const [loading,  setLoading]  = useState(true);

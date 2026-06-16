@@ -36,7 +36,8 @@ async function listUsers({ companyId }) {
     take:    500,
     select: {
       id: true, email: true, firstName: true, lastName: true,
-      role: true, isActive: true, lastLoginAt: true, createdAt: true,
+      role: true, customRoleId: true, isActive: true, lastLoginAt: true, createdAt: true,
+      customRole: { select: { id: true, name: true } },
     },
   });
 }
@@ -45,23 +46,34 @@ async function updateUser({ id, companyId, data, requestorRole }) {
   const user = await prisma.user.findFirst({ where: { id, companyId } });
   if (!user) { const e = new Error('User not found.'); e.status = 404; throw e; }
 
-  // Only ADMINs can change roles
-  if (data.role !== undefined && requestorRole !== 'ADMIN') {
-    const e = new Error('Only admins can change roles.'); e.status = 403; throw e;
+  if ((data.role !== undefined || data.customRoleId !== undefined) && requestorRole !== 'OWNER') {
+    const e = new Error('Only the owner can change roles.'); e.status = 403; throw e;
   }
 
-  const { firstName, lastName, role, isActive } = data;
+  // Prevent demoting the last owner
+  if (data.role !== 'OWNER' && user.role === 'OWNER') {
+    const ownerCount = await prisma.user.count({ where: { companyId, role: 'OWNER', isActive: true } });
+    if (ownerCount <= 1) {
+      const e = new Error('Cannot remove the last owner.'); e.status = 400; throw e;
+    }
+  }
+
+  const { firstName, lastName, role, customRoleId, isActive } = data;
   const payload = {};
-  if (firstName !== undefined) payload.firstName = firstName;
-  if (lastName  !== undefined) payload.lastName  = lastName;
-  if (role      !== undefined) payload.role      = role;
-  if (isActive  !== undefined) payload.isActive  = isActive;
+  if (firstName    !== undefined) payload.firstName    = firstName;
+  if (lastName     !== undefined) payload.lastName     = lastName;
+  if (isActive     !== undefined) payload.isActive     = isActive;
+  if (role         !== undefined) { payload.role = role || null; payload.customRoleId = null; }
+  if (customRoleId !== undefined) { payload.customRoleId = customRoleId || null; payload.role = null; }
 
   return prisma.user.update({
     where: { id },
     data:  payload,
-    select: { id: true, email: true, firstName: true, lastName: true,
-              role: true, isActive: true, lastLoginAt: true, createdAt: true },
+    select: {
+      id: true, email: true, firstName: true, lastName: true,
+      role: true, customRoleId: true, isActive: true, lastLoginAt: true, createdAt: true,
+      customRole: { select: { id: true, name: true } },
+    },
   });
 }
 
@@ -86,13 +98,21 @@ async function listInvites({ companyId }) {
     where:   { companyId, status: 'PENDING' },
     orderBy: { createdAt: 'desc' },
     take:    100,
-    select:  { id: true, email: true, role: true, status: true, expiresAt: true, createdAt: true },
+    select:  {
+      id: true, email: true, role: true, customRoleId: true, status: true, expiresAt: true, createdAt: true,
+      customRole: { select: { id: true, name: true } },
+    },
   });
 }
 
 async function createInvite({ companyId, invitedById, data }) {
-  const { email, role = 'ESTIMATOR' } = data;
+  const { email, customRoleId } = data;
   if (!email) { const e = new Error('email is required.'); e.status = 400; throw e; }
+  if (!customRoleId) { const e = new Error('customRoleId is required.'); e.status = 400; throw e; }
+
+  // Verify the custom role belongs to this company
+  const customRole = await prisma.customRole.findFirst({ where: { id: customRoleId, companyId } });
+  if (!customRole) { const e = new Error('Role not found.'); e.status = 404; throw e; }
 
   // Check the email isn't already a user in this company
   const existing = await prisma.user.findFirst({ where: { companyId, email } });
@@ -111,12 +131,17 @@ async function createInvite({ companyId, invitedById, data }) {
     data: {
       companyId,
       email,
-      role,
-      invitedById: invitedById || null,
+      role:         null,
+      customRoleId,
+      invitedById:  invitedById || null,
       expiresAt,
       token: crypto.randomUUID(),
     },
-    select: { id: true, email: true, role: true, status: true, expiresAt: true, createdAt: true, token: true },
+    select: {
+      id: true, email: true, role: true, customRoleId: true, status: true,
+      expiresAt: true, createdAt: true, token: true,
+      customRole: { select: { id: true, name: true } },
+    },
   });
 }
 
@@ -130,8 +155,50 @@ async function revokeInvite({ id, companyId }) {
   });
 }
 
+// ── Custom Roles ──────────────────────────────────────────────────────────────
+
+async function listCustomRoles({ companyId }) {
+  return prisma.customRole.findMany({
+    where:   { companyId },
+    orderBy: { createdAt: 'asc' },
+    select:  { id: true, name: true, permissions: true, createdAt: true, updatedAt: true,
+                _count: { select: { users: true } } },
+  });
+}
+
+async function createCustomRole({ companyId, data }) {
+  const { name, permissions = [] } = data;
+  if (!name?.trim()) { const e = new Error('Role name is required.'); e.status = 400; throw e; }
+  return prisma.customRole.create({
+    data: { companyId, name: name.trim(), permissions },
+    select: { id: true, name: true, permissions: true, createdAt: true, updatedAt: true },
+  });
+}
+
+async function updateCustomRole({ id, companyId, data }) {
+  const role = await prisma.customRole.findFirst({ where: { id, companyId } });
+  if (!role) { const e = new Error('Role not found.'); e.status = 404; throw e; }
+  const { name, permissions } = data;
+  const payload = {};
+  if (name        !== undefined) payload.name        = name.trim();
+  if (permissions !== undefined) payload.permissions = permissions;
+  return prisma.customRole.update({
+    where: { id },
+    data:  payload,
+    select: { id: true, name: true, permissions: true, createdAt: true, updatedAt: true },
+  });
+}
+
+async function deleteCustomRole({ id, companyId }) {
+  const role = await prisma.customRole.findFirst({ where: { id, companyId } });
+  if (!role) { const e = new Error('Role not found.'); e.status = 404; throw e; }
+  // Users assigned to this role will have customRoleId set to null (SET NULL in DB)
+  await prisma.customRole.delete({ where: { id } });
+}
+
 module.exports = {
   getCompany, updateCompany,
   listUsers, updateUser, deleteUser,
   listInvites, createInvite, revokeInvite,
+  listCustomRoles, createCustomRole, updateCustomRole, deleteCustomRole,
 };

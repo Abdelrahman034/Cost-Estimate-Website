@@ -26,8 +26,7 @@ function loadOrder() {
 }
 
 export default function Sidebar({ open, onClose }) {
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'ADMIN';
+  const { isOwner, hasPermission } = useAuth();
   const { activeProject, clearActiveProject } = useActiveProject();
   const navigate = useNavigate();
   const [estimatingOrder, setEstimatingOrder] = useState(loadOrder);
@@ -94,8 +93,11 @@ export default function Sidebar({ open, onClose }) {
         {/* Navigation */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
           {NAV_SECTIONS.map((section) => {
-            // Filter out adminOnly items for non-admin users
-            const visibleItems = section.items.filter(item => !item.adminOnly || isAdmin);
+            const visibleItems = section.items.filter(item => {
+              if (item.ownerOnly) return isOwner;
+              if (item.permKey)   return hasPermission(item.permKey);
+              return true;
+            });
             if (visibleItems.length === 0) return null;
             return (
             <div key={section.title}>
@@ -151,8 +153,8 @@ export default function Sidebar({ open, onClose }) {
                     {estimatingOrder.map((to) => {
                     const item = estimatingItemByRoute.get(to);
                     if (!item) return null;
-                    // Respect adminOnly flag — same rule as non-Estimating sections
-                    if (item.adminOnly && !isAdmin) return null;
+                    if (item.ownerOnly && !isOwner) return null;
+                    if (item.permKey && !hasPermission(item.permKey)) return null;
                     const { label, icon: Icon, ai } = item;
                     const isDragging = draggedRoute === to;
                     // Append ?projectId= when a project is active
