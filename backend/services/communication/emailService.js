@@ -1,33 +1,21 @@
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 
-function createTransporter() {
-  return nodemailer.createTransport({
-    host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-    port: parseInt(process.env.EMAIL_PORT || '587'),
-    secure: false,
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
-    },
-  });
+function getClient() {
+  return new Resend(process.env.RESEND_API_KEY);
 }
 
-/**
- * Send an RFQ email to a supplier
- * @param {string} to - Supplier email address
- * @param {string} subject - Email subject
- * @param {string} body - Email body (plain text or HTML)
- * @param {Array} attachments - Optional attachments
- */
+const FROM = () =>
+  `"${process.env.EMAIL_FROM_NAME || 'HVAC Estimating'}" <${process.env.EMAIL_FROM || 'no-reply@resend.dev'}>`;
+
 async function sendRFQEmail(to, subject, body, attachments = []) {
-  const transporter = createTransporter();
+  const resend = getClient();
 
   const htmlBody = body
     .replace(/\n/g, '<br>')
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
 
-  const mailOptions = {
-    from: `"${process.env.EMAIL_FROM_NAME || 'HVAC Estimating'}" <${process.env.EMAIL_USER}>`,
+  const payload = {
+    from: FROM(),
     to,
     subject,
     text: body,
@@ -44,21 +32,26 @@ async function sendRFQEmail(to, subject, body, attachments = []) {
         </div>
       </div>
     `,
-    attachments,
   };
 
-  const result = await transporter.sendMail(mailOptions);
-  return { messageId: result.messageId, accepted: result.accepted };
+  if (attachments.length) {
+    payload.attachments = attachments.map((a) => ({
+      filename: a.filename,
+      content: a.path,
+    }));
+  }
+
+  const { data, error } = await resend.emails.send(payload);
+  if (error) throw new Error(error.message);
+  return { messageId: data.id };
 }
 
-/**
- * Send proposal PDF to a client
- */
 async function sendProposal(to, clientName, projectName, pdfPath) {
-  const transporter = createTransporter();
+  const resend = getClient();
+  const fs = require('fs');
 
-  const mailOptions = {
-    from: `"${process.env.EMAIL_FROM_NAME || 'HVAC Estimating'}" <${process.env.EMAIL_USER}>`,
+  const { data, error } = await resend.emails.send({
+    from: FROM(),
     to,
     subject: `Bid Proposal – ${projectName}`,
     html: `
@@ -80,14 +73,42 @@ async function sendProposal(to, clientName, projectName, pdfPath) {
     attachments: [
       {
         filename: `Proposal_${projectName.replace(/\s+/g, '_')}.pdf`,
-        path: pdfPath,
-        contentType: 'application/pdf',
+        content: fs.readFileSync(pdfPath),
       },
     ],
-  };
+  });
 
-  const result = await transporter.sendMail(mailOptions);
-  return { messageId: result.messageId, accepted: result.accepted };
+  if (error) throw new Error(error.message);
+  return { messageId: data.id };
 }
 
-module.exports = { sendRFQEmail, sendProposal };
+async function sendInviteEmail(to, inviteUrl, companyName) {
+  const resend = getClient();
+
+  const { data, error } = await resend.emails.send({
+    from: FROM(),
+    to,
+    subject: `You've been invited to join ${companyName} on HVAC Estimator`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background: #1e40af; color: white; padding: 20px; border-radius: 8px 8px 0 0;">
+          <h2 style="margin: 0;">Team Invitation</h2>
+        </div>
+        <div style="padding: 24px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
+          <p>You've been invited to join <strong>${companyName}</strong> on the HVAC Cost Estimator platform.</p>
+          <br>
+          <a href="${inviteUrl}" style="display:inline-block;background:#1e40af;color:white;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">
+            Accept Invitation
+          </a>
+          <br><br>
+          <p style="color:#6b7280;font-size:13px;">This link expires in 7 days. If you didn't expect this invitation, you can ignore this email.</p>
+        </div>
+      </div>
+    `,
+  });
+
+  if (error) throw new Error(error.message);
+  return { messageId: data.id };
+}
+
+module.exports = { sendRFQEmail, sendProposal, sendInviteEmail };

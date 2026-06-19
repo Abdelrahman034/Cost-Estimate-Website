@@ -1,0 +1,70 @@
+version: '3.9'
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: hvac_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hvac
+      POSTGRES_PASSWORD: hvac
+      POSTGRES_DB: hvac
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - hvac_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hvac"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: hvac_backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PORT: 3001
+      NODE_ENV: production
+      DATABASE_URL: postgresql://hvac:hvac@db:5432/hvac
+      DIRECT_URL: postgresql://hvac:hvac@db:5432/hvac
+      JWT_ACCESS_SECRET: local_access_secret_change_in_prod
+      JWT_REFRESH_SECRET: local_refresh_secret_change_in_prod
+      JWT_ACCESS_EXPIRES_IN: 15m
+      JWT_REFRESH_EXPIRES_IN: 7d
+      ALLOWED_ORIGINS: http://localhost
+      RESEND_API_KEY: re_8zj3EWTK_6LqwsQ8873MQwnoFWktxwA5k
+      EMAIL_FROM_NAME: HVAC Estimating
+      EMAIL_FROM: no-reply@resend.dev
+      APP_URL: http://localhost
+    ports:
+      - "3001:3001"
+    networks:
+      - hvac_net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: hvac_frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - hvac_net
+
+volumes:
+  pgdata:
+
+networks:
+  hvac_net:
+    driver: bridge

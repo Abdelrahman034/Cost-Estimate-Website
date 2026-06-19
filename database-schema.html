@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>HVAC Estimator — Database Schema</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: white; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 20px; }
+h1 { font-size: 16px; margin-bottom: 6px; color: #1a1a1a; }
+.legend { display: flex; gap: 16px; margin-bottom: 14px; flex-wrap: wrap; }
+.legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #555; }
+.legend-dot { width: 10px; height: 10px; border-radius: 2px; }
+.btn { display:inline-block; margin-bottom:14px; padding:6px 16px; background:#3b82f6; color:white; border:none; border-radius:5px; font-size:13px; cursor:pointer; }
+.btn:hover { background:#2563eb; }
+@media print {
+  .btn { display: none; }
+  body { padding: 10px; }
+}
+</style>
+</head>
+<body>
+<h1>HVAC Estimator — Database Schema</h1>
+<button class="btn" onclick="window.print()">Print / Save as PDF</button>
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:#3b82f6"></div> Auth / Tenant</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#10b981"></div> Project</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#f59e0b"></div> Estimate / Module</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#8b5cf6"></div> Pricing / Supplier</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#ef4444"></div> Reference</div>
+  <span style="color:#888;font-size:11px;margin-left:auto"><span style="color:#f59e0b;font-weight:700">PK</span> = Primary Key &nbsp; <span style="color:#6366f1;font-weight:700">FK</span> = Foreign Key</span>
+</div>
+
+<svg viewBox="0 0 1380 1060" xmlns="http://www.w3.org/2000/svg" style="width:100%">
+<defs>
+  <marker id="arr" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+    <path d="M0,0 L6,3 L0,6 Z" fill="#94a3b8"/>
+  </marker>
+</defs>
+
+<!-- Group backgrounds -->
+<rect x="10" y="10" width="370" height="420" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+<text x="25" y="28" font-size="10" fill="#3b82f6" font-weight="700" letter-spacing="0.06em">AUTH / TENANT</text>
+<rect x="395" y="10" width="385" height="420" rx="8" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1.5"/>
+<text x="410" y="28" font-size="10" fill="#10b981" font-weight="700" letter-spacing="0.06em">PROJECT</text>
+<rect x="10" y="440" width="775" height="380" rx="8" fill="#fffbeb" stroke="#fde68a" stroke-width="1.5"/>
+<text x="25" y="458" font-size="10" fill="#d97706" font-weight="700" letter-spacing="0.06em">ESTIMATES &amp; MODULE ITEMS</text>
+<rect x="795" y="10" width="575" height="540" rx="8" fill="#f5f3ff" stroke="#ddd6fe" stroke-width="1.5"/>
+<text x="810" y="28" font-size="10" fill="#8b5cf6" font-weight="700" letter-spacing="0.06em">PRICING &amp; SUPPLIERS</text>
+<rect x="795" y="560" width="575" height="270" rx="8" fill="#fff1f2" stroke="#fecdd3" stroke-width="1.5"/>
+<text x="810" y="578" font-size="10" fill="#ef4444" font-weight="700" letter-spacing="0.06em">REFERENCE DATA (global)</text>
+<rect x="10" y="836" width="370" height="100" rx="8" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="25" y="854" font-size="10" fill="#64748b" font-weight="700" letter-spacing="0.06em">REPORTS</text>
+
+<!-- COMPANY -->
+<rect x="20" y="35" width="168" height="175" rx="5" fill="white" stroke="#3b82f6" stroke-width="1.5"/>
+<rect x="20" y="35" width="168" height="22" rx="5" fill="#3b82f6"/><rect x="20" y="46" width="168" height="11" fill="#3b82f6"/>
+<text x="30" y="51" fill="white" font-size="10" font-weight="700">companies</text>
+<text x="28" y="71" font-size="9"><tspan fill="#f59e0b" font-weight="700">PK</tspan><tspan font-weight="600"> id</tspan> <tspan fill="#888">cuid</tspan></text>
+<text x="28" y="85" font-size="9"><tspan font-weight="600">  name</tspan> <tspan fill="#888">String</tspan></text>
+<text x="28" y="99" font-size="9"><tspan font-weight="600">  address / phone</tspan> <tspan fill="#888">String?</tspan></text>
+<text x="28" y="113" font-size="9"><tspan font-weight="600">  email / logoUrl</tspan> <tspan fill="#888">String?</tspan></text>
+<text x="28" y="127" font-size="9"><tspan font-weight="600">  licenseNum</tspan> <tspan fill="#888">String?</tspan></text>
+<text x="28" y="141" font-size="9"><tspan font-weight="600">  createdAt</tspan> <tspan fill="#888">DateTime</tspan></text>
+<text x="28" y="155" font-size="9"><tspan font-weight="600">  updatedAt</tspan> <tspan fill="#888">DateTime</tspan></text>
+
+<!-- USER -->
+<rect x="200" y="35" width="168" height="195" rx="5" fill="white" stroke="#3b82f6" stroke-width="1.5"/>
+<rect x="200" y="35" width="168" height="22" rx="5" fill="#3b82f6"/><rect x="200" y="46" width="168" height="11" fill="#3b82f6"/>
+<text x="210" y="51" fill="white" font-size="10" font-weight="700">users</text>
+<text x="208" y="71" font-size="9"><tspan fill="#f59e0b" font-weight="700">PK</tspan><tspan font-weight="600"> id</tspan></text>
+<text x="208" y="85" font-size="9"><tspan fill="#6366f1" font-weight="700">FK</tspan><tspan font-weight="600"> companyId</tspan></text>
+<text x="208" y="99" font-size="9"><tspan font-weight="600">  email</tspan> <tspan fill="#888">String</tspan></text>
+<text x="208" y="113" font-size="9"><tspan font-weight="600">  passwordHash</tspan></text>
+<text x="208" y="127" font-size="9"><tspan font-weight="600">  firstName / lastName</tspan></text>
+<text x="208" y="141" font-size="9"><tspan font-weight="600">  role</tspan> <tspan fill="#888">Role?</tspan></text>
+<text x="208" y="155" font-size="9"><tspan fill="#6366f1" font-weight="700">FK</tspan><tspan font-weight="600"> customRoleId</tspan></text>
+<text x="208" y="169" font-size="9"><tspan font-weight="600">  isActive</tspan> <tspan fill="#888">Boolean</tspan></text>
+<text x="208" y="183" font-size="9"><tspan font-weight="600">  lastLoginAt</tspan> <tspan fill="#888">DateTime?</tspan></text>
+<text x="208" y="197" font-size="9"><tspan font-weight="600">  createdAt / updatedAt</tspan></text>
+
+<!-- REFRESH_TOKEN -->
+<rect x="20" y="222" width="168" height="110" rx="5" fill="white" stroke="#60a5fa" stroke-width="1.5"/>
+<rect x="20" y="222" width="168" height="22" rx="5" fill="#60a5fa"/><rect x="20" y="233" width="168" height="11" fill="#60a5fa"/>
+<text x="30" y="238" fill="white" font-size="10" font-weight="700">refresh_tokens</text>
+<text x="28" y="255" font-size="9"><tspan fill="#f59e0b" font-weight="700">PK</tspan><tspan font-weight="600"> id</tspan></text>
+<text x="28" y="269" font-size="9"><tspan fill="#6366f1" font-weight="700">FK</tspan><tspan font-weight="600"> userId</tspan></text>
+<text x="28" y="283" font-size="9"><tspan font-weight="600">  token</tspan> <tspan fill="#888">String unique</tspan></text>
+<text x="28" y="297" font-size="9"><tspan font-weight="600">  expiresAt / revokedAt</tspan></text>
+
+<!-- INVITE -->
+<rect x="20" y="344" width="168" height="78" rx="5" fill="white" stroke="#60a5fa" stroke-width="1.5"/>
+<rect x="20" y="344" width="168" height="22" rx="5" fill="#60a5fa"/><rect x="20" y="355" width="168" height="11" fill="#60a5fa"/>
+<text x="30" y="360" fill="white" font-size="10" font-weight="700">invites</text>
+<text x="28" y="378" font-size="9"><tspan fill="#f59e0b" font-weight="700">PK</tspan><tspan font-weight="600"> id</tspan>  <tspan fill="#6366f1" font-weight="700">FK</tspan><tspan font-weight="600"> companyId</tspan></text>
+<text x="28" y="392" font-size="9"><tspan font-weight="600">  email, role, status</tspan></text>
+<text x="28" y="406" font-size="9"><tspan font-weight="600">  token, expiresAt</tspan></text>
+
+<!-- CUSTOM_ROLE -->
+<rect x="200" y="242" width="168" height="92" rx="5" fill="white" stroke="#60a5fa" stroke-width="1.5"/>
+<rect x="200" y="242" width="168" height="22" rx="5" fill="#60a5fa"/><rect x="200" y="253" width="168" height="11" fill="#60a5fa"/>
+<text x="210" y="258" fill="white" font-size="10" font-weight="700">custom_roles</text>
+<text x="208" y="275" font-size="9"><tspan fill="#f59e0b" font-weight="700">PK</tspan><tspan font-weight="600"> id</tspan></text>
+<text x="208" y="289" font-size="9"><tspan fill="#6366f1" font-weight="700">FK</tspan><tspan font-weight="600"> companyId</tspan></text>
+<text x="208" y="303" font-size="9"><tspan font-weight="600">  name</tspan> <tspan fill="#888">String</tspan></text>
+<text x="208" y="317" font-size="9"><tspan font-weight="600">  permissions</tspan> <tspan fill="#888">Json[]</tspan></text>
+
+<!-- PROJECT -->
+<rect x="405" y="35" width="178" height="255" rx="5" fill="white" stroke="#10b981" stroke-width="1.5"/>
+<rect x="405" y="35" width="178" height="22" rx="5" fill="#10b981"/><rect x="405" y="46" width="178" height="11" fill="#10b981"/>
+<text x="415" y="51" fill="white" font-size="10" font-weight="700">projects</text>
+<text x="413" y="71" font-size="9"><tspan fill="#f59e0b" font-weight="700">PK</tspan><tspan font-weight="600"> id</tspan></text>
+<text x="413" y="85" font-size="9"><tspan fill="#6366f1" font-weight="700">FK</tspan><tspan font-weight="600"> companyId</tspan></text>
+<text x="413" y="99" font-size="9"><tspan fill="#6366f1" font-weight="700">FK</tspan><tspan font-weight="600"> createdById</tspan></text>
+<text x="413" y="113" font-size="9"><tspan font-weight="600">  name</tspan> <tspan fill="#888">String</tspan></text>
+<text x="413" y="127" font-size="9"><tspan font-weight="600">  location / owner / gc</tspan></text>
+<text x="413" y="141" font-size="9"><tspan font-weight="600">  bidDate</tspan> <tspan fill="#888">DateTime?</tspan></text>
+<text x="413" y="155" font-size="9"><tspan font-weight="600">  status</tspan> <tspan fill="#888">ProjectStatus</tspan></text>
+<text x="413" y="169" font-size="9"><tspan font-weight="600">  projectType</tspan> <tspan fill="#888">ProjectType?</tspan></text>
+<text x="413" y="183" font-size="9"><tspan font-weight="600">  bidValue / area</tspan> <tspan fill="#888">Float?</tspan></text>
+<text x="413" y="197" font-size="9"><tspan font-weight="600">  marginPct</tspan> <tspan fill="#888">Decimal?</tspan></text>
+<text x="413" y="211" font-size="9"><tspan font-weight="600">  settingsOverrides</tspan> <tspan fill="#888">Json?</tspan></text>
+<text x="413" y="225" font-size="9"><tspan font-weight="600">  notes</tspan> <tspan fill="#888">String?</tspan></text>
+<text x="413" y="239" font-size="9"><tspan font-weight="600">  createdAt / updatedAt</tspan></text>
+
+<!-- PROJECT_MEMBER -->
+<rect x="595" y="35" width="172" height="100" rx="5" fill="white" stroke="#34d399" stroke-width="1.5"/>
+<rect x="595" y="35" width="172" height="22" rx="5" fill="#34d399"/><rect x="595" y="46" width="172" height="11" fill="#34d399"/>
+<text x="605" y="51" fill="white" font-size="10" font-weight="700">project_members</text>
+<text x="603" y="71" font-size="9"><tspan fill="#f59e0b" font-weight="700">PK</tspan><tspan font-weight="600"> id</tspan></text>
+<text x="603" y="85" font-size="9"><tspan fill="#6366f1" font-weight="700">FK</tspan><tspan font-weight="600"> projectId</tspan>  <tspan fill="#6366f1" font-weight="700">FK</tspan><tspan font-weight="600"> userId</tspan></text>
+<text x="603" y="99" font-size="9"><tspan font-weight="600">  assignedById / assignedAt</tspan></text>
+
+<!-- PROJECT_CONTACT -->
+<rect x="595" y="148" width="172" height="100" rx="5" fill="white" stroke="#34d399" stroke-width="1.5"/>
+<rect x="595" y="148" width="172" height="22" rx="5" fill="#34d399"/><rect x="595" y="159" width="172" height="11" fill="#34d399"/>
+<text x="605" y="164" fill="white" font-size="10" font-weight="700">project_contacts</text>
+<text x="603" y="183" font-size="9"><tspan fill="#f59e0b" font-weight="700">PK</tspan><tspan font-weight="600"> id</tspan>  <tspan fill="#6366f1" font-weight="700">FK</tspan><tspan font-weight="600"> projectId</tspan></text>
+<text x="603" y="197" font-size="9"><tspan font-weight="600">  name / role / email / phone</tspan></text>
+<text x="603" y="211" font-size="9"><tspan font-weight="600">  isPrimary</tspan> <tspan fill="#888">Boolean</tspan></text>
+
+<!-- PROJECT_CHANGELOG -->
+<rect x="405" y="305" width="178" height="90" rx="5" fill="white" stroke="#34d399" stroke-width="1.5"/>
+<rect x="405" y="305" width="178" height="22" rx="5" fill="#34d399"/><rect x="405" y="316" width="178" height="11" fill="#34d399"/>
+<text x="415" y="321" fill="white" font-size="10" font-weight="700">project_changelogs</text>
+<text x="413" y="341" font-size="9"><tspan fill="#f59e0b" font-weight="700">PK</tspan><tspan font-weight="600"> id</tspan>  <tspan fill="#6366f1" font-weight="700">FK</tspan><tspan font-weight="600"> projectId / userId</tspan></text>
+<text x="413" y="355" font-size="9"><tspan font-weight="600">  action</tspan> <tspan fill="#888">String</tspan>  <tspan font-weight="600">  detail</tspan> <tspan fill="#888">Json?</tspan></text>
+<text x="413" y="369" font-size="9"><tspan font-weight="600">  createdAt</tspan> <tspan fill="#888">DateTime</tspan></text>
+
+<!-- SCENARIO -->
+<rect x="595" y="265" width="172" height="100" rx="5" fill="white" stroke="#34d399" stroke-width="1.5"/>
+<rect x="595" y="265" width="172" height="22" rx="5" fill="#34d399"/><rect x="595" y="276" width="172" height="11" fill="#34d399"/>
+<text x="605" y="281" fill="white" font-size="10" font-weight="700">scenarios</text>
+<text x="603" y="301" font-size="9"><tspan fill="#f59e0b" font-weight="700">PK</tspan><tspan font-weight="600"> id</tspan>  <tspan fill="#6366f1" font-weight="700">FK</tspan><tspan font-weight="600"> projectId</tspan></text>
+<text x="603" y="315" font-size="9"><tspan font-weight="600">  name</tspan> <tspan fill="#888">String</tspan>  <tspan font-weight="600">  isDefault</tspan> <tspan fill="#888">Boolean</tspan></text>
+
+<!-- ESTIMATE -->
+<rect x="20" y="465" width="195" height="220" rx="5" fill="white" stroke="#d97706" stroke-width="1.5"/>
+<rect x="20" y="465" width="195" height="22" rx="5" fill="#f59e0b"/><rect x="20" y="476" width="195" height="11" fill="#f59e0b"/>
+<text x="30" y="481" fill="white" font-size="10" font-weight="700">estimates</text>
+<text x="28" y="501" font-size="9"><tspan fill="#f59e0b" font-weight="700">PK</tspan><tspan font-weight="600"> id</tspan></text>
+<text x="28" y="515" font-size="9"><tspan fill="#6366f1" font-weight="700">FK</tspan><tspan font-weight="600"> projectId</tspan></text>
+<text x="28" y="529" font-size="9"><tspan fill="#6366f1" font-weight="700">FK</tspan><tspan font-weight="600"> scenarioId</tspan></text>
+<text x="28" y="543" font-size="9"><tspan fill="#6366f1" font-weight="700">FK</tspan><tspan font-weight="600"> createdById</tspan></text>
+<text x="28" y="557" font-size="9"><tspan font-weight="600">  module</tspan> <tspan fill="#888">ModuleType</tspan></text>
+<text x="28" y="571" font-size="9"><tspan font-weight="600">  totalMaterial / Labor</tspan> <tspan fill="#888">Decimal?</tspan></text>
+<text x="28" y="585" font-size="9"><tspan font-weight="600">  totalHours / Cost</tspan> <tspan fill="#888">Decimal?</tspan></text>
+<text x="28" y="599" font-size="9"><tspan font-weight="600">  settings</tspan> <tspan fill="#888">Json?</tspan></text>
+<text x="28" y="613" font-size="9"><tspan font-weight="600">  rowsJson / totalsJson</tspan> <tspan fill="#888">Json?</tspan></text>
+<text x="28" y="627" font-size="9"><tspan font-weight="600">  createdAt / updatedAt</tspan></text>
+<text x="28" y="641" font-size="9" fill="#d97706">unique(projectId, scenarioId, module)</text>
+
+<!-- ESTIMATE_ROW -->
+<rect x="225" y="465" width="158" height="110" rx="5" fill="white" stroke="#d97706" stroke-width="1.5"/>
+<rect x="225" y="465" width="158" height="22" rx="5" fill="#fcd34d"/><rect x="225" y="476" width="158" height="11" fill="#fcd34d"/>
+<text x="235" y="481" fill="#78350f" font-size="10" font-weight="700">estimate_rows</text>
+<text x="233" y="501" font-size="9"><tspan fill="#f59e0b" font-weight="700">PK</tspan><tspan font-weight="600"> id</tspan></text>
+<text x="233" y="515" font-size="9"><tspan fill="#6366f1" font-weight="700">FK</tspan><tspan font-weight="600"> estimateId</tspan></text>
+<text x="233" y="529" font-size="9"><tspan font-weight="600">  sortOrder</tspan> <tspan fill="#888">Int</tspan></text>
+<text x="233" y="543" font-size="9"><tspan font-weight="600">  rowData / resultData</tspan> <tspan fill="#888">Json</tspan></text>
+
+<!-- Module items col 1 -->
+<rect x="393" y="465" width="190" height="62" rx="5" fill="white" stroke="#d97706" stroke-width="1"/>
+<rect x="393" y="465" width="190" height="19" rx="5" fill="#fde68a"/><rect x="393" y="475" width="190" height="9" fill="#fde68a"/>
+<text x="401" y="479" fill="#78350f" font-size="9" font-weight="700">unit_schedule_items</text>
+<text x="401" y="493" font-size="9"><tspan fill="#6366f1" font-weight="700">FK</tspan> estimateId · tag · unitType · qty · tons</text>
+<text x="401" y="507" font-size="9">systemType · material · labor · hours · total</text>
+<text x="401" y="519" font-size="9">rowData · resultData <tspan fill="#d97706">(Json)</tspan></text>
+
+<rect x="393" y="533" width="190" height="55" rx="5" fill="white" stroke="#d97706" stroke-width="1"/>
+<rect x="393" y="533" width="190" height="19" rx="5" fill="#fde68a"/><rect x="393" y="543" width="190" height="9" fill="#fde68a"/>
+<text x="401" y="547" fill="#78350f" font-size="9" font-weight="700">metal_duct_items</text>
+<text x="401" y="561" font-size="9"><tspan fill="#6366f1" font-weight="700">FK</tspan> estimateId · ductSize · shape · gauge</text>
+<text x="401" y="575" font-size="9">lengthFt · surfaceArea · weightLb · material</text>
+
+<rect x="393" y="594" width="190" height="48" rx="5" fill="white" stroke="#d97706" stroke-width="1"/>
+<rect x="393" y="594" width="190" height="19" rx="5" fill="#fde68a"/><rect x="393" y="604" width="190" height="9" fill="#fde68a"/>
+<text x="401" y="608" fill="#78350f" font-size="9" font-weight="700">vav_items</text>
+<text x="401" y="622" font-size="9"><tspan fill="#6366f1" font-weight="700">FK</tspan> estimateId · tag · vavType · cfm</text>
+<text x="401" y="636" font-size="9">qty · hasReheat · material · labor</text>
+
+<rect x="393" y="648" width="190" height="48" rx="5" fill="white" stroke="#d97706" stroke-width="1"/>
+<rect x="393" y="648" width="190" height="19" rx="5" fill="#fde68a"/><rect x="393" y="658" width="190" height="9" fill="#fde68a"/>
+<text x="401" y="662" fill="#78350f" font-size="9" font-weight="700">electric_heat_items</text>
+<text x="401" y="676" font-size="9"><tspan fill="#6366f1" font-weight="700">FK</tspan> estimateId · tag · kw · volts · qty</text>
+<text x="401" y="690" font-size="9">material · labor · hours · total</text>
+
+<!-- Module items col 2 -->
+<rect x="591" y="465" width="186" height="48" rx="5" fill="white" stroke="#d97706" stroke-width="1"/>
+<rect x="591" y="465" width="186" height="19" rx="5" fill="#fde68a"/><rect x="591" y="475" width="186" height="9" fill="#fde68a"/>
+<text x="599" y="479" fill="#78350f" font-size="9" font-weight="700">fan_items</text>
+<text x="599" y="493" font-size="9"><tspan fill="#6366f1" font-weight="700">FK</tspan> estimateId · tag · fanType · cfm · hp</text>
+<text x="599" y="507" font-size="9">qty · material · labor · hours · total</text>
+
+<rect x="591" y="519" width="186" height="48" rx="5" fill="white" stroke="#d97706" stroke-width="1"/>
+<rect x="591" y="519" width="186" height="19" rx="5" fill="#fde68a"/><rect x="591" y="529" width="186" height="9" fill="#fde68a"/>
+<text x="599" y="533" fill="#78350f" font-size="9" font-weight="700">louver_items</text>
+<text x="599" y="547" font-size="9"><tspan fill="#6366f1" font-weight="700">FK</tspan> estimateId · tag · itemType</text>
+<text x="599" y="561" font-size="9">width · height · qty · material · labor</text>
+
+<rect x="591" y="573" width="186" height="48" rx="5" fill="white" stroke="#d97706" stroke-width="1"/>
+<rect x="591" y="573" width="186" height="19" rx="5" fill="#fde68a"/><rect x="591" y="583" width="186" height="9" fill="#fde68a"/>
+<text x="599" y="587" fill="#78350f" font-size="9" font-weight="700">diffuser_items</text>
+<text x="599" y="601" font-size="9"><tspan fill="#6366f1" font-weight="700">FK</tspan> estimateId · tag · diffuserType · size</text>
+<text x="599" y="615" font-size="9">qty · material · labor · hours · total</text>
+
+<rect x="591" y="627" width="186" height="48" rx="5" fill="white" stroke="#d97706" stroke-width="1"/>
+<rect x="591" y="627" width="186" height="19" rx="5" fill="#fde68a"/><rect x="591" y="637" width="186" height="9" fill="#fde68a"/>
+<text x="599" y="641" fill="#78350f" font-size="9" font-weight="700">general_items</text>
+<text x="599" y="655" font-size="9"><tspan fill="#6366f1" font-weight="700">FK</tspan> estimateId · description · moduleType</text>
+<text x="599" y="669" font-size="9">qty · unit · material · labor · hours · total</text>
+
+<!-- PRICING_CONFIG -->
+<rect x="805" y="35" width="195" height="240" rx="5" fill="white" stroke="#8b5cf6" stroke-width="1.5"/>
+<rect x="805" y="35" width="195" height="22" rx="5" fill="#8b5cf6"/><rect x="805" y="46" width="195" height="11" fill="#8b5cf6"/>
+<text x="815" y="51" fill="white" font-size="10" font-weight="700">pricing_configs</text>
+<text x="813" y="71" font-size="9"><tspan fill="#f59e0b" font-weight="700">PK</tspan><tspan font-weight="600"> id</tspan></text>
+<text x="813" y="85" font-size="9"><tspan fill="#6366f1" font-weight="700">FK</tspan><tspan font-weight="600"> companyId</tspan> <tspan fill="#888">unique</tspan></text>
+<text x="813" y="99" font-size="9"><tspan font-weight="600">  ratePackaged / rateSplit / rateVrf</tspan></text>
+<text x="813" y="113" font-size="9"><tspan font-weight="600">  rateFan / rateDuct / rateElec</tspan></text>
+<text x="813" y="127" font-size="9"><tspan font-weight="600">  overheadPct / profitPct / taxPct</tspan></text>
+<text x="813" y="141" font-size="9"><tspan font-weight="600">  ductWastePct / pipeWastePct</tspan></text>
+<text x="813" y="155" font-size="9"><tspan font-weight="600">  accessoryOverrides</tspan> <tspan fill="#888">Json</tspan></text>
+<text x="813" y="169" font-size="9"><tspan font-weight="600">  unitPricingTables</tspan> <tspan fill="#888">Json?</tspan></text>
+<text x="813" y="183" font-size="9"><tspan font-weight="600">  ductPricingTables</tspan> <tspan fill="#888">Json?</tspan></text>
+<text x="813" y="197" font-size="9"><tspan font-weight="600">  copperSettings</tspan> <tspan fill="#888">Json?</tspan></text>
+<text x="813" y="211" font-size="9"><tspan font-weight="600">  ductPrices</tspan> <tspan fill="#888">Json?</tspan></text>
+<text x="813" y="225" font-size="9"><tspan font-weight="600">  updatedAt</tspan> <tspan fill="#888">DateTime</tspan></text>
+
+<!-- PRICE_HISTORY -->
+<rect x="1010" y="35" width="348" height="105" rx="5" fill="white" stroke="#a78bfa" stroke-width="1.5"/>
+<rect x="1010" y="35" width="348" height="22" rx="5" fill="#a78bfa"/><rect x="1010" y="46" width="348" height="11" fill="#a78bfa"/>
+<text x="1020" y="51" fill="white" font-size="10" font-weight="700">price_history</text>
+<text x="1018" y="71" font-size="9"><tspan fill="#f59e0b" font-weight="700">PK</tspan><tspan font-weight="600"> id</tspan>  <tspan fill="#6366f1" font-weight="700">FK</tspan><tspan font-weight="600"> companyId</tspan></text>
+<text x="1018" y="85" font-size="9"><tspan font-weight="600">  source</tspan> <tspan fill="#888">String?</tspan>  <tspan font-weight="600">  pricesJson</tspan> <tspan fill="#888">Json</tspan></text>
+<text x="1018" y="99" font-size="9"><tspan font-weight="600">  fetchedAt</tspan> <tspan fill="#888">DateTime</tspan></text>
+
+<!-- SUPPLIER -->
+<rect x="805" y="285" width="195" height="145" rx="5" fill="white" stroke="#a78bfa" stroke-width="1.5"/>
+<rect x="805" y="285" width="195" height="22" rx="5" fill="#a78bfa"/><rect x="805" y="296" width="195" height="11" fill="#a78bfa"/>
+<text x="815" y="301" fill="white" font-size="10" font-weight="700">suppliers</text>
+<text x="813" y="321" font-size="9"><tspan fill="#f59e0b" font-weight="700">PK</tspan><tspan font-weight="600"> id</tspan>  <tspan fill="#6366f1" font-weight="700">FK</tspan><tspan font-weight="600"> companyId</tspan></text>
+<text x="813" y="335" font-size="9"><tspan font-weight="600">  name / company / email / phone</tspan></text>
+<text x="813" y="349" font-size="9"><tspan font-weight="600">  notes</tspan> <tspan fill="#888">String?</tspan>  <tspan font-weight="600">  isActive</tspan> <tspan fill="#888">Boolean</tspan></text>
+<text x="813" y="363" font-size="9"><tspan font-weight="600">  createdAt / updatedAt</tspan></text>
+
+<!-- RFQ -->
+<rect x="1010" y="150" width="348" height="145" rx="5" fill="white" stroke="#a78bfa" stroke-width="1.5"/>
+<rect x="1010" y="150" width="348" height="22" rx="5" fill="#a78bfa"/><rect x="1010" y="161" width="348" height="11" fill="#a78bfa"/>
+<text x="1020" y="166" fill="white" font-size="10" font-weight="700">rfqs</text>
+<text x="1018" y="186" font-size="9"><tspan fill="#f59e0b" font-weight="700">PK</tspan><tspan font-weight="600"> id</tspan>  <tspan fill="#6366f1" font-weight="700">FK</tspan><tspan font-weight="600"> companyId / projectId</tspan></text>
+<text x="1018" y="200" font-size="9"><tspan font-weight="600">  title / projectName</tspan> <tspan fill="#888">String</tspan></text>
+<text x="1018" y="214" font-size="9"><tspan font-weight="600">  itemsJson</tspan> <tspan fill="#888">Json</tspan>  <tspan font-weight="600">  status</tspan> <tspan fill="#888">RfqStatus</tspan></text>
+<text x="1018" y="228" font-size="9"><tspan font-weight="600">  sentAt / dueDate / notes</tspan></text>
+
+<!-- RFQ_SUPPLIER join -->
+<rect x="805" y="440" width="195" height="48" rx="5" fill="white" stroke="#a78bfa" stroke-width="1" stroke-dasharray="4,2"/>
+<rect x="805" y="440" width="195" height="19" rx="5" fill="#ede9fe"/><rect x="805" y="450" width="195" height="9" fill="#ede9fe"/>
+<text x="813" y="454" fill="#6d28d9" font-size="9" font-weight="700">rfq_suppliers (join table)</text>
+<text x="813" y="468" font-size="9"><tspan fill="#6366f1" font-weight="700">FK</tspan> rfqId  <tspan fill="#6366f1" font-weight="700">FK</tspan> supplierId  PK(both)</text>
+
+<!-- SUPPLIER_QUOTE -->
+<rect x="1010" y="305" width="348" height="115" rx="5" fill="white" stroke="#a78bfa" stroke-width="1.5"/>
+<rect x="1010" y="305" width="348" height="22" rx="5" fill="#a78bfa"/><rect x="1010" y="316" width="348" height="11" fill="#a78bfa"/>
+<text x="1020" y="321" fill="white" font-size="10" font-weight="700">supplier_quotes</text>
+<text x="1018" y="341" font-size="9"><tspan fill="#f59e0b" font-weight="700">PK</tspan><tspan font-weight="600"> id</tspan>  <tspan fill="#6366f1" font-weight="700">FK</tspan><tspan font-weight="600"> rfqId</tspan>  <tspan fill="#6366f1" font-weight="700">FK</tspan><tspan font-weight="600"> supplierId</tspan></text>
+<text x="1018" y="355" font-size="9"><tspan font-weight="600">  linesJson</tspan> <tspan fill="#888">Json</tspan>  <tspan font-weight="600">  subtotal</tspan> <tspan fill="#888">Decimal?</tspan></text>
+<text x="1018" y="369" font-size="9"><tspan font-weight="600">  status</tspan> <tspan fill="#888">QuoteStatus</tspan>  <tspan font-weight="600">  receivedAt</tspan> <tspan fill="#888">DateTime?</tspan></text>
+<text x="1018" y="383" font-size="9"><tspan font-weight="600">  notes / createdAt / updatedAt</tspan></text>
+
+<!-- COPPER_PIPE_SPEC -->
+<rect x="805" y="580" width="210" height="175" rx="5" fill="white" stroke="#ef4444" stroke-width="1.5"/>
+<rect x="805" y="580" width="210" height="22" rx="5" fill="#ef4444"/><rect x="805" y="591" width="210" height="11" fill="#ef4444"/>
+<text x="815" y="596" fill="white" font-size="10" font-weight="700">copper_pipe_specs</text>
+<text x="813" y="616" font-size="9"><tspan fill="#f59e0b" font-weight="700">PK</tspan><tspan font-weight="600"> id</tspan></text>
+<text x="813" y="630" font-size="9"><tspan font-weight="600">  nominalSize</tspan> <tspan fill="#888">String unique</tspan></text>
+<text x="813" y="644" font-size="9"><tspan font-weight="600">  sortOrder</tspan> <tspan fill="#888">Int</tspan></text>
+<text x="813" y="658" font-size="9"><tspan font-weight="600">  weightKLbPerFt / weightLLbPerFt</tspan></text>
+<text x="813" y="672" font-size="9"><tspan font-weight="600">  weightMLbPerFt</tspan> <tspan fill="#888">Decimal</tspan></text>
+<text x="813" y="686" font-size="9"><tspan font-weight="600">  distributionFactor</tspan> <tspan fill="#888">Decimal</tspan></text>
+<text x="813" y="700" font-size="9"><tspan font-weight="600">  vrvBaselinePricePerFt</tspan> <tspan fill="#888">Decimal?</tspan></text>
+<text x="813" y="714" font-size="9"><tspan font-weight="600">  insulationCostPerFt</tspan> <tspan fill="#888">Decimal</tspan></text>
+
+<!-- COPPER_EQUIPMENT_CONFIG -->
+<rect x="1025" y="445" width="340" height="215" rx="5" fill="white" stroke="#ef4444" stroke-width="1.5"/>
+<rect x="1025" y="445" width="340" height="22" rx="5" fill="#ef4444"/><rect x="1025" y="456" width="340" height="11" fill="#ef4444"/>
+<text x="1035" y="461" fill="white" font-size="10" font-weight="700">copper_equipment_configs</text>
+<text x="1033" y="481" font-size="9"><tspan fill="#f59e0b" font-weight="700">PK</tspan><tspan font-weight="600"> id</tspan></text>
+<text x="1033" y="495" font-size="9"><tspan font-weight="600">  equipType</tspan> <tspan fill="#888">split|wallMounted|ahuWithCU|vrv</tspan></text>
+<text x="1033" y="509" font-size="9"><tspan font-weight="600">  tonnage</tspan> <tspan fill="#888">Int</tspan>  <tspan fill="#d97706">unique(equipType, tonnage)</tspan></text>
+<text x="1033" y="523" font-size="9"><tspan font-weight="600">  liquidPipeSize / suctionPipeSize</tspan></text>
+<text x="1033" y="537" font-size="9"><tspan font-weight="600">  avgLengthShortFt / avgLengthLongFt</tspan></text>
+<text x="1033" y="551" font-size="9"><tspan font-weight="600">  baselineCopperLShort / Long</tspan> <tspan fill="#888">Decimal?</tspan></text>
+<text x="1033" y="565" font-size="9"><tspan font-weight="600">  baselineCopperRollShort / Long</tspan></text>
+<text x="1033" y="579" font-size="9"><tspan font-weight="600">  baselineShort / Long</tspan> <tspan fill="#888">Decimal?</tspan></text>
+<text x="1033" y="593" font-size="9"><tspan font-weight="600">  vrvBasePerFt / vrvBlendedWeightPerFt</tspan></text>
+<text x="1033" y="607" font-size="9"><tspan font-weight="600">  vrvInsulationPerFt</tspan> <tspan fill="#888">Decimal?</tspan></text>
+<text x="1033" y="621" font-size="9"><tspan font-weight="600">  updatedAt</tspan> <tspan fill="#888">DateTime</tspan></text>
+
+<!-- REPORTS -->
+<rect x="20" y="858" width="355" height="72" rx="5" fill="white" stroke="#64748b" stroke-width="1.5"/>
+<rect x="20" y="858" width="355" height="22" rx="5" fill="#64748b"/><rect x="20" y="869" width="355" height="11" fill="#64748b"/>
+<text x="30" y="874" fill="white" font-size="10" font-weight="700">reports</text>
+<text x="28" y="894" font-size="9"><tspan fill="#f59e0b" font-weight="700">PK</tspan><tspan font-weight="600"> id</tspan>  <tspan fill="#6366f1" font-weight="700">FK</tspan><tspan font-weight="600"> companyId</tspan>  <tspan fill="#6366f1" font-weight="700">FK</tspan><tspan font-weight="600"> projectId</tspan></text>
+<text x="28" y="908" font-size="9"><tspan font-weight="600">  type · filename · storagePath · totalBid · metadata</tspan></text>
+
+<!-- RELATIONS -->
+<g stroke="#94a3b8" stroke-width="1.1" fill="none" marker-end="url(#arr)" opacity="0.65">
+  <line x1="188" y1="115" x2="200" y2="115"/>
+  <line x1="240" y1="230" x2="130" y2="250"/>
+  <line x1="105" y1="210" x2="105" y2="344"/>
+  <line x1="188" y1="150" x2="200" y2="280"/>
+  <line x1="284" y1="230" x2="284" y2="242"/>
+  <line x1="385" y1="100" x2="405" y2="100"/>
+  <line x1="583" y1="75" x2="595" y2="75"/>
+  <line x1="583" y1="195" x2="595" y2="195"/>
+  <line x1="494" y1="290" x2="494" y2="305"/>
+  <line x1="583" y1="315" x2="595" y2="315"/>
+  <line x1="450" y1="390" x2="115" y2="465"/>
+  <line x1="620" y1="365" x2="120" y2="530"/>
+  <line x1="215" y1="560" x2="225" y2="530"/>
+  <line x1="215" y1="580" x2="393" y2="492"/>
+  <line x1="215" y1="595" x2="393" y2="557"/>
+  <line x1="215" y1="610" x2="393" y2="616"/>
+  <line x1="215" y1="622" x2="393" y2="666"/>
+  <line x1="215" y1="580" x2="591" y2="485"/>
+  <line x1="215" y1="592" x2="591" y2="539"/>
+  <line x1="215" y1="606" x2="591" y2="593"/>
+  <line x1="215" y1="618" x2="591" y2="647"/>
+  <line x1="188" y1="130" x2="805" y2="130"/>
+  <line x1="188" y1="145" x2="1010" y2="80"/>
+  <line x1="188" y1="160" x2="805" y2="340"/>
+  <line x1="900" y1="430" x2="900" y2="440"/>
+  <line x1="1010" y1="222" x2="960" y2="458"/>
+  <line x1="1107" y1="295" x2="1107" y2="305"/>
+  <line x1="1000" y1="370" x2="1060" y2="365"/>
+  <line x1="100" y1="210" x2="100" y2="858"/>
+  <line x1="455" y1="390" x2="210" y2="858"/>
+</g>
+</svg>
+</body>
+</html>

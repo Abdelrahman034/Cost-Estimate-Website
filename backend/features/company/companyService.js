@@ -2,6 +2,7 @@
 
 const prisma = require('../../prisma/client');
 const crypto = require('node:crypto');
+const { sendInviteEmail } = require('../../services/communication/emailService');
 
 // ── Company Profile ───────────────────────────────────────────────────────────
 
@@ -127,7 +128,7 @@ async function createInvite({ companyId, invitedById, data }) {
   });
 
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-  return prisma.invite.create({
+  const invite = await prisma.invite.create({
     data: {
       companyId,
       email,
@@ -141,8 +142,21 @@ async function createInvite({ companyId, invitedById, data }) {
       id: true, email: true, role: true, customRoleId: true, status: true,
       expiresAt: true, createdAt: true, token: true,
       customRole: { select: { id: true, name: true } },
+      company: { select: { name: true } },
     },
   });
+
+  const appUrl = process.env.APP_URL || 'http://localhost';
+  const inviteUrl = `${appUrl}/accept-invite?token=${invite.token}`;
+
+  try {
+    await sendInviteEmail(email, inviteUrl, invite.company.name);
+  } catch (err) {
+    console.error('[invite email] Failed to send:', err.message);
+  }
+
+  const { company: _, ...inviteWithoutCompany } = invite;
+  return inviteWithoutCompany;
 }
 
 async function revokeInvite({ id, companyId }) {

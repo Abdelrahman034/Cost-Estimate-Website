@@ -21,9 +21,9 @@ import { FileText, Printer, Edit2, Plus, Trash2, Check, RefreshCw, Zap } from 'l
 import { useSearchParams } from 'react-router-dom';
 import { readAllModuleTotals } from '@utils/projectTotals';
 import { SettingsContext } from '@contexts/SettingsContext';
-import { useEstimate } from '@hooks/useEstimate';
 import { estimatesApi } from '@services/estimatesApi';
-import { ductApi } from '@services/api';
+import { ductApi, projectsApi } from '@services/api';
+import { useAutoSave } from '@hooks/useAutoSave';
 import toast from 'react-hot-toast';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -188,14 +188,19 @@ function SectionHeading({ children }) {
 function buildEquipmentLines(rowsJson) {
   const lines = [];
   const fmtTons = (t) => t ? `${t} Ton` : '';
-  const fmtCost = (c) => c ? ` — ${fmt(c)}` : '';
 
   const accLabels = {
+    // RTU
     standardCurb: 'Standard Curb', metalRoofCurb: 'Metal Roof Curb',
     curbAdapter: 'Curb Adapter', economizer: 'Economizer',
+    newDrops: 'New Drops', drumLouvers: 'Drum Louvers',
+    // Split / Wall Mount / VRF
+    condenserRails: 'Condenser Rails', drainPan: 'Drain Pan',
+    oaDamper: 'OA Damper', floatSwitch: 'Float Switch',
+    condPump: 'Condensate Pump', ductTransitions: 'Duct Transitions',
+    // Shared
     pvcCond: 'PVC Condensate', cuCond: 'Cu Condensate',
     thermostat: 'Thermostat', smokeDetectors: 'Smoke Detectors',
-    newDrops: 'New Drops', drumLouvers: 'Drum Louvers',
   };
 
   const accSummary = (accessories) => {
@@ -209,32 +214,34 @@ function buildEquipmentLines(rowsJson) {
   // Packaged / RTU rows
   (rowsJson.packagedRows || []).forEach(r => {
     if (!r.name) return;
-    const cost  = r.quotedEquipCost || (r.baseCostPerTon * r.coolTons) || 0;
     const owner = r.ownerProvided === 'xx' ? ' (Owner Provided)' : '';
-    lines.push(`${r.name} — ${fmtTons(r.coolTons)} RTU${owner}${fmtCost(cost)}${accSummary(r.accessories)}`);
+    lines.push(`${r.name} — ${fmtTons(r.coolTons)} RTU${owner}${accSummary(r.accessories)}`);
   });
+
+  const copperSummary = (copper) => {
+    if (!copper?.avgLengthFt) return '';
+    const ins = copper.includeInsulation ? ', Insulated' : '';
+    return ` | Type ${copper.copperType || 'L'} copper — ${copper.avgLengthFt} ft${ins}`;
+  };
 
   // Split system rows
   (rowsJson.splitRows || []).forEach(r => {
     if (!r.name) return;
-    const cost  = r.quotedEquipCost || 0;
     const owner = r.ownerProvided === 'xx' ? ' (Owner Provided)' : '';
-    lines.push(`${r.name} — ${fmtTons(r.coolTons)} Split System${owner}${fmtCost(cost)}`);
+    lines.push(`${r.name} — ${fmtTons(r.coolTons)} Split System${owner}${accSummary(r.accessories)}${copperSummary(r.copper)}`);
   });
 
   // Wall mount rows
   (rowsJson.wallMountRows || []).forEach(r => {
     if (!r.name) return;
-    const cost  = r.quotedEquipCost || 0;
     const owner = r.ownerProvided === 'xx' ? ' (Owner Provided)' : '';
-    lines.push(`${r.name} — ${fmtTons(r.coolTons)} Wall Mount${owner}${fmtCost(cost)}`);
+    lines.push(`${r.name} — ${fmtTons(r.coolTons)} Wall Mount${owner}${accSummary(r.accessories)}${copperSummary(r.copper)}`);
   });
 
   // VRF rows
   (rowsJson.vrfRows || []).forEach(r => {
     if (!r.name) return;
-    const cost = r.quotedEquipCost || 0;
-    lines.push(`${r.name} — ${fmtTons(r.coolTons)} VRF${fmtCost(cost)}`);
+    lines.push(`${r.name} — ${fmtTons(r.coolTons)} VRF${accSummary(r.accessories)}${copperSummary(r.copper)}`);
   });
 
   // Service rows
@@ -244,6 +251,52 @@ function buildEquipmentLines(rowsJson) {
   });
 
   return lines;
+}
+
+// ─── Fan schedule lines ───────────────────────────────────────────────────────
+function buildFanLines(rows) {
+  const active = rows.filter(r => r.tagId || r.fanType);
+  if (!active.length) return [];
+  const tags = active.map(r => r.tagId).filter(Boolean).join(', ');
+  return [`${active.length} Fan${active.length !== 1 ? 's' : ''}${tags ? ` — ${tags}` : ''}`];
+}
+
+// ─── Diffuser schedule lines ──────────────────────────────────────────────────
+const DIFFUSER_TYPE_LABELS = {
+  sq_xl: 'Square Diffuser >24×24', sq_l: 'Square Diffuser 24×24',
+  sq_m:  'Square Diffuser >12×12', sq_s: 'Square Diffuser 12×12',
+  sq_xs: 'Square Diffuser <12×12', slot_48: 'Slot Diffuser 48"',
+  slot_24: 'Slot Diffuser 24"',    other: 'Diffuser',
+};
+
+function buildDiffuserLines(rows) {
+  // Group by typeId and sum qty for a concise summary
+  const groups = {};
+  for (const r of rows) {
+    if (!r.typeId) continue;
+    const qty = Number(r.qty) || 0;
+    if (!qty) continue;
+    groups[r.typeId] = (groups[r.typeId] || 0) + qty;
+  }
+  return Object.entries(groups).map(([typeId, qty]) => {
+    const label = DIFFUSER_TYPE_LABELS[typeId] || typeId;
+    return `${qty}× ${label}`;
+  });
+}
+
+// ─── VAV schedule lines ───────────────────────────────────────────────────────
+function buildVavLines(rows) {
+  const count = rows.filter(r => r.idTag || r.fanCfm).length;
+  if (!count) return [];
+  return [`${count} VAV Box${count !== 1 ? 'es' : ''}`];
+}
+
+// ─── Electric unit heater lines ───────────────────────────────────────────────
+function buildElectricHeatLines(rows) {
+  const active = rows.filter(r => r.tagId || r.kw);
+  if (!active.length) return [];
+  const tags = active.map(r => r.tagId).filter(Boolean).join(', ');
+  return [`${active.length} Electric Unit Heater${active.length !== 1 ? 's' : ''}${tags ? ` — ${tags}` : ''}`];
 }
 
 // ─── Build duct schedule summary from calculate API response rows ─────────────
@@ -318,49 +371,7 @@ function ProposalDoc({ data, onDataChange, summaryTotals }) {
         </li>
       </ul>
 
-      {/* 3. Equipment Schedule (auto-extracted from Unit Schedule) */}
-      {data.equipmentSchedule?.length > 0 && (
-        <>
-          <SectionHeading>Equipment Schedule</SectionHeading>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11pt' }} className="mb-2">
-            <thead>
-              <tr style={{ borderBottom: '1px solid #ccc' }}>
-                <th style={{ textAlign: 'left', padding: '3px 6px', fontWeight: 'bold', width: '18%' }}>Tag</th>
-                <th style={{ textAlign: 'left', padding: '3px 6px', fontWeight: 'bold' }}>Description</th>
-                <th style={{ textAlign: 'right', padding: '3px 6px', fontWeight: 'bold', width: '15%' }}>Price</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.equipmentSchedule.map((line, i) => {
-                // Parse "TAG — description — $price [accessories]"
-                const priceMatch = line.match(/— (\$[\d,]+)/);
-                const accMatch   = line.match(/\[(.+)\]$/);
-                const price      = priceMatch ? priceMatch[1] : '—';
-                const acc        = accMatch   ? accMatch[1]   : '';
-                // Tag is everything before the first ' — '
-                const dashIdx    = line.indexOf(' — ');
-                const tag        = dashIdx > -1 ? line.slice(0, dashIdx) : line;
-                // Description: strip tag, price, accessories
-                let desc = dashIdx > -1 ? line.slice(dashIdx + 3) : '';
-                if (priceMatch) desc = desc.replace(` — ${priceMatch[1]}`, '');
-                if (accMatch)   desc = desc.replace(` [${acc}]`, '');
-                return (
-                  <tr key={i} style={{ borderBottom: '1px solid #eee' }}>
-                    <td style={{ padding: '3px 6px', fontWeight: 'bold' }}>{tag}</td>
-                    <td style={{ padding: '3px 6px' }}>
-                      {desc}
-                      {acc && <span style={{ color: '#555', fontSize: '10pt' }}> · {acc}</span>}
-                    </td>
-                    <td style={{ padding: '3px 6px', textAlign: 'right' }}>{price}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </>
-      )}
-
-      {/* 4. Scope of Work */}
+      {/* 3. Scope of Work */}
       <SectionHeading>Scope of Work</SectionHeading>
       <EditablePara value={data.scopeIntro} onChange={ch('scopeIntro')} />
       {data.controlsExcluded && (
@@ -380,45 +391,6 @@ function ProposalDoc({ data, onDataChange, summaryTotals }) {
 
       {/* 6. Ductwork Installation */}
       <SectionHeading>Ductwork Installation</SectionHeading>
-      {data.ductSchedule?.length > 0 && (() => {
-        const totLf     = data.ductSchedule.reduce((s, r) => s + r.lf,     0);
-        const totArea   = data.ductSchedule.reduce((s, r) => s + r.area,   0);
-        const totWeight = data.ductSchedule.reduce((s, r) => s + r.weight, 0);
-        const totCost   = data.ductSchedule.reduce((s, r) => s + r.cost,   0);
-        return (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11pt', marginBottom: '6px' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid #ccc' }}>
-                <th style={{ textAlign: 'left',  padding: '3px 6px', fontWeight: 'bold' }}>Type</th>
-                <th style={{ textAlign: 'right', padding: '3px 6px', fontWeight: 'bold' }}>Lin. Ft</th>
-                <th style={{ textAlign: 'right', padding: '3px 6px', fontWeight: 'bold' }}>Area (sq ft)</th>
-                <th style={{ textAlign: 'right', padding: '3px 6px', fontWeight: 'bold' }}>Weight (lbs)</th>
-                <th style={{ textAlign: 'right', padding: '3px 6px', fontWeight: 'bold' }}>Cost</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.ductSchedule.map((r, i) => (
-                <tr key={i} style={{ borderBottom: '1px solid #eee' }}>
-                  <td style={{ padding: '3px 6px' }}>{r.type}</td>
-                  <td style={{ padding: '3px 6px', textAlign: 'right' }}>{r.lf.toLocaleString()}</td>
-                  <td style={{ padding: '3px 6px', textAlign: 'right' }}>{r.area.toLocaleString()}</td>
-                  <td style={{ padding: '3px 6px', textAlign: 'right' }}>{r.weight.toLocaleString()}</td>
-                  <td style={{ padding: '3px 6px', textAlign: 'right' }}>{fmt(r.cost)}</td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr style={{ borderTop: '2px solid #ccc', fontWeight: 'bold' }}>
-                <td style={{ padding: '3px 6px' }}>Total</td>
-                <td style={{ padding: '3px 6px', textAlign: 'right' }}>{totLf.toLocaleString()}</td>
-                <td style={{ padding: '3px 6px', textAlign: 'right' }}>{totArea.toLocaleString()}</td>
-                <td style={{ padding: '3px 6px', textAlign: 'right' }}>{totWeight.toLocaleString()}</td>
-                <td style={{ padding: '3px 6px', textAlign: 'right' }}>{fmt(totCost)}</td>
-              </tr>
-            </tfoot>
-          </table>
-        );
-      })()}
       <EditableLabelList items={data.ductworkItems} onChange={ch('ductworkItems')} />
 
       {/* 7. Services Included */}
@@ -478,13 +450,7 @@ export default function ProposalPdfModule({ projectInfo }) {
       scopeCompliance: ['Project specifications', 'Applicable mechanical codes', 'SMACNA standards'],
       scopeClosing:    'Our scope includes providing labor, materials, equipment and supervision necessary to deliver a fully operational HVAC system.',
 
-      // Auto-extracted from Unit Schedule (populated via "Extract Equipment" button)
-      equipmentSchedule: [],
-
-      // Auto-extracted from Metal Duct (populated via "Extract Duct" button)
-      ductSchedule: [],
-
-      // Equipment — pre-populated; edit to match actual project schedule
+      // Equipment — pre-populated; populated by "Extract All" from Unit Schedule
       equipmentItems: [
         'Rooftop Package Units (RTUs) — Carrier or equal',
         'Ductless Split Systems — Carrier or equal',
@@ -535,44 +501,118 @@ export default function ProposalPdfModule({ projectInfo }) {
     };
   });
 
-  // Extract equipment from saved Unit Schedule estimate
-  const extractEquipment = useCallback(async () => {
-    if (!projectId) { toast.error('Open a project first to extract equipment.'); return; }
-    setExtracting(true);
-    try {
-      const est = await estimatesApi.getByModule(projectId, 'UNIT_SCHEDULE');
-      if (!est?.rowsJson) { toast.error('No Unit Schedule saved for this project yet.'); return; }
-      const lines = buildEquipmentLines(est.rowsJson);
-      if (lines.length === 0) { toast.error('Unit Schedule has no equipment rows.'); return; }
-      setData(prev => ({ ...prev, equipmentSchedule: lines }));
-      toast.success(`${lines.length} unit${lines.length !== 1 ? 's' : ''} extracted from Unit Schedule`);
-    } catch {
-      toast.error('Could not load Unit Schedule.');
-    } finally {
-      setExtracting(false);
-    }
+  // Fetch bid totals from the saved Summary estimate
+  const [summaryTotals, setSummaryTotals] = useState(null);
+  useEffect(() => {
+    if (!projectId) return;
+    estimatesApi.getByModule(projectId, 'SUMMARY')
+      .then(est => {
+        if (est?.totalsJson) setSummaryTotals(est.totalsJson);
+      })
+      .catch(() => {});
   }, [projectId]);
 
-  // Extract duct summary from saved Metal Duct estimate
-  const [extractingDuct, setExtractingDuct] = useState(false);
+  // Load saved proposal content from DB on mount
+  const { markAsLoaded } = useAutoSave(
+    data,
+    () => estimatesApi.save(projectId, { module: 'PROPOSAL_PDF', rowsJson: data }),
+    !!projectId,
+  );
 
-  const extractDuct = useCallback(async () => {
-    if (!projectId) { toast.error('Open a project first to extract duct data.'); return; }
-    setExtractingDuct(true);
+  useEffect(() => {
+    if (!projectId) { markAsLoaded(null); return; }
+    estimatesApi.getByModule(projectId, 'PROPOSAL_PDF')
+      .then(est => {
+        if (est?.rowsJson && typeof est.rowsJson === 'object') {
+          setData(prev => ({ ...prev, ...est.rowsJson }));
+          markAsLoaded(est.rowsJson);
+        } else {
+          markAsLoaded(null);
+        }
+      })
+      .catch(() => markAsLoaded(null));
+  }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-fill project name and address from the API
+  useEffect(() => {
+    if (!projectId) return;
+    projectsApi.getById(projectId)
+      .then(res => {
+        const p = res.data ?? res;
+        setData(prev => ({
+          ...prev,
+          ...(p.name     ? { projectName:    p.name     } : {}),
+          ...(p.location ? { projectAddress: p.location } : {}),
+        }));
+      })
+      .catch(() => {});
+  }, [projectId]);
+
+  // Extract all schedule data and populate the proposal sections directly
+  const extractAll = useCallback(async () => {
+    if (!projectId) { toast.error('Open a project first.'); return; }
+    setExtracting(true);
     try {
-      const est = await estimatesApi.getByModule(projectId, 'METAL_DUCT');
-      if (!est?.rowsJson) { toast.error('No Metal Duct estimate saved for this project yet.'); return; }
-      const rows = Array.isArray(est.rowsJson) ? est.rowsJson : (est.rowsJson.rows || []);
-      if (rows.length === 0) { toast.error('Metal Duct estimate has no rows.'); return; }
-      const { data: calcResult } = await ductApi.calculate(rows, {});
-      const summary = buildDuctSummary(calcResult.rows || []);
-      if (summary.length === 0) { toast.error('No duct data found.'); return; }
-      setData(prev => ({ ...prev, ductSchedule: summary }));
-      toast.success(`Duct schedule extracted — ${summary.length} type${summary.length !== 1 ? 's' : ''}`);
-    } catch (err) {
-      toast.error('Could not extract duct data.');
+      const [unitEst, ductEst, fanEst, diffEst, vavEst, ehEst] = await Promise.all([
+        estimatesApi.getByModule(projectId, 'UNIT_SCHEDULE').catch(() => null),
+        estimatesApi.getByModule(projectId, 'METAL_DUCT').catch(() => null),
+        estimatesApi.getByModule(projectId, 'FAN_SCHEDULE').catch(() => null),
+        estimatesApi.getByModule(projectId, 'DIFFUSER_SCHEDULE').catch(() => null),
+        estimatesApi.getByModule(projectId, 'VAV_SCHEDULE').catch(() => null),
+        estimatesApi.getByModule(projectId, 'ELECTRIC_HEAT').catch(() => null),
+      ]);
+
+      // "Equipment and Systems Provided" ← Unit Schedule
+      const equipmentItems = unitEst?.rowsJson
+        ? buildEquipmentLines(unitEst.rowsJson)
+        : [];
+
+      // "Additional HVAC Equipment" ← fans + diffusers + VAV + electric heat
+      const additionalEquipment = [
+        ...(fanEst?.rowsJson  ? buildFanLines(fanEst.rowsJson)         : []),
+        ...(diffEst?.rowsJson ? buildDiffuserLines(diffEst.rowsJson)   : []),
+        ...(vavEst?.rowsJson  ? buildVavLines(vavEst.rowsJson)         : []),
+        ...(ehEst?.rowsJson   ? buildElectricHeatLines(ehEst.rowsJson) : []),
+      ];
+
+      // "Ductwork Installation" ← Metal Duct summary as label-body items
+      let ductworkItems = [
+        { label: 'Sheet Metal Ductwork:', body: 'Supply and install galvanized sheet metal ductwork in accordance with the mechanical drawings.' },
+        { label: 'Installation Standards:', body: 'All ductwork shall comply with the latest SMACNA fabrication and installation standards.' },
+        { label: 'Insulation:', body: 'Insulation will meet or exceed the latest local energy code requirements.' },
+        { label: 'Balancing Dampers:', body: 'Install volume control dampers (VCDs) to ensure proper airflow balancing throughout the system.' },
+      ];
+      if (ductEst?.rowsJson) {
+        const ductRows = Array.isArray(ductEst.rowsJson) ? ductEst.rowsJson : (ductEst.rowsJson.rows || []);
+        if (ductRows.length > 0) {
+          const { data: calcResult } = await ductApi.calculate(ductRows, {});
+          const summary = buildDuctSummary(calcResult.rows || []);
+          if (summary.length > 0) {
+            const totLf     = summary.reduce((s, r) => s + r.lf,     0);
+            const totArea   = summary.reduce((s, r) => s + r.area,   0);
+            const totWeight = summary.reduce((s, r) => s + r.weight, 0);
+            const typeLines = summary.map(r => `${r.type}: ${r.lf.toLocaleString()} LF · ${r.area.toLocaleString()} sq ft · ${r.weight.toLocaleString()} lbs`).join('; ');
+            ductworkItems = [
+              { label: 'Duct Quantities:', body: typeLines },
+              { label: 'Total:', body: `${totLf.toLocaleString()} LF · ${totArea.toLocaleString()} sq ft · ${totWeight.toLocaleString()} lbs` },
+              ...ductworkItems,
+            ];
+          }
+        }
+      }
+
+      const total = equipmentItems.length + additionalEquipment.length;
+      if (total === 0 && ductworkItems.length === 4) {
+        toast.error('No saved estimate data found for this project.');
+        return;
+      }
+
+      setData(prev => ({ ...prev, equipmentItems, additionalEquipment, ductworkItems }));
+      toast.success('Proposal populated from saved estimates');
+    } catch {
+      toast.error('Could not extract data.');
     } finally {
-      setExtractingDuct(false);
+      setExtracting(false);
     }
   }, [projectId]);
 
@@ -630,14 +670,9 @@ export default function ProposalPdfModule({ projectInfo }) {
             </label>
           </div>
 
-          <button onClick={extractEquipment} disabled={extracting} className="btn-secondary text-sm flex items-center gap-1.5">
+          <button onClick={extractAll} disabled={extracting} className="btn-secondary text-sm flex items-center gap-1.5">
             {extracting ? <RefreshCw size={13} className="animate-spin" /> : <Zap size={13} />}
-            Extract Equipment
-          </button>
-
-          <button onClick={extractDuct} disabled={extractingDuct} className="btn-secondary text-sm flex items-center gap-1.5">
-            {extractingDuct ? <RefreshCw size={13} className="animate-spin" /> : <Zap size={13} />}
-            Extract Duct
+            Extract All
           </button>
 
           <button onClick={refreshModules} className="btn-secondary text-sm flex items-center gap-1.5">
@@ -657,7 +692,7 @@ export default function ProposalPdfModule({ projectInfo }) {
         <span><strong>Export PDF:</strong> Click "Export PDF" → browser print dialog → Save as PDF.</span>
       </div>
 
-      <ProposalDoc data={data} onDataChange={setData} />
+      <ProposalDoc data={data} onDataChange={setData} summaryTotals={summaryTotals} />
     </div>
   );
 }
